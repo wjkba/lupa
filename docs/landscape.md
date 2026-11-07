@@ -42,7 +42,8 @@ Verdict: the direction (plugin data → server-side normalization → compact te
 5. **A budget, spent breadth-first.** The agent sees the whole structure first. Cut subtrees are marked with the id to fetch next. Repeated siblings, including alternating zebra rows, fold into one pattern plus their content.
 6. **Exact values.** Gradients are converted analytically from the transform (verified pixel by pixel in tests). Blur is halved, letter-spacing converted, and per-side borders, stroke alignment, corner smoothing, image crop and filters are kept.
 7. **Close the loop visually.** Screenshots are sized for vision models and tiled. `compare_screenshot` renders Figma at the implementation's width, diffs the two, and names the Figma layers under each differing region.
-8. **Read-only by construction.** The protocol has no write methods. The socket is loopback-only, with an origin policy: browser origins other than Figma are rejected, and only Figma origins can act as the plugin.
+8. **CLI first, MCP optional.** Agents with a shell use the `loupe` command and a skill. Nothing sits in the context until Figma work starts, output can go to files, and humans can run the same commands. The MCP server shares the same implementation for clients without a shell.
+9. **Read-only by construction.** The protocol has no write methods. The socket is loopback-only, with an origin policy: browser origins other than Figma are rejected, and only Figma origins can act as the plugin.
 
 ## Measurements
 
@@ -51,3 +52,6 @@ Verdict: the direction (plugin data → server-side normalization → compact te
 | plumb's fixture dialog (21 nodes) | 15,364 chars REST JSON; plumb output 5,465 chars | 1,789 chars (≈560 tokens) as a readable tree |
 | Product card test scene | 19.4k chars plugin JSON | ≈870 tokens |
 | Synthetic 300-row table (3,903 nodes) | 1.83M chars plugin JSON | 1,261 tokens in 60 ms (zebra rows folded, each row's content listed) |
+| Real desktop screen (header, tabs, 8-row table, 6 components) | — | 10.6k chars (≈3.3k tokens) in one call, no cuts |
+
+On that real screen, a page written only from Loupe's output matched Figma at 1.1% pixel mismatch.

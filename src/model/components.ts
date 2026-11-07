@@ -8,7 +8,7 @@
  * and stays correct when two siblings share a name.
  */
 
-import type { Builder, IRNode, Run } from "./build";
+import { isDefaultName, type Builder, type IRNode, type Run } from "./build";
 import { n } from "./css";
 
 export type ComponentMode = "auto" | "inline" | "names";
@@ -249,14 +249,18 @@ export function mapDiff(a: Record<string, string>, b: Record<string, string>, se
   return out;
 }
 
-/** Display names for siblings, disambiguated with `[n]` when names repeat. */
+/**
+ * Display names for siblings, disambiguated with `[n]` when names repeat.
+ * Default names ("Frame 517") are hidden on definition lines, so those layers go by their id.
+ */
 function pathNames(nodes: IRNode[]): Map<IRNode, string> {
   const counts = new Map<string, number>();
   for (const c of nodes) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
   const seen = new Map<string, number>();
   const out = new Map<IRNode, string>();
   for (const c of nodes) {
-    if ((counts.get(c.name) ?? 0) > 1) {
+    if (isDefaultName(c.name)) out.set(c, `#${c.id}`);
+    else if ((counts.get(c.name) ?? 0) > 1) {
       const i = (seen.get(c.name) ?? 0) + 1;
       seen.set(c.name, i);
       out.set(c, `${c.name}[${i}]`);

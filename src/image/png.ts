@@ -155,6 +155,11 @@ export function diff(a: Raster, b: Raster, threshold = 0.1): DiffResult {
   return { mismatched, total, ratio: mismatched / total, diff: { width: a.width, height: a.height, data: out }, regions: regionsOf(out, a.width, a.height) };
 }
 
+/** True when pixel offset `i` of a diff() raster is a mismatch (pixelmatch paints them in diffColor). */
+export function isDiffPixel(data: Buffer, i: number): boolean {
+  return data[i] === 255 && data[i + 1] === 0 && data[i + 2] === 80;
+}
+
 /** Group diff pixels into boxes on a coarse grid, then merge touching boxes. */
 function regionsOf(diffData: Buffer, width: number, height: number, cell = 8): DiffRegion[] {
   const cols = Math.ceil(width / cell);
@@ -163,8 +168,7 @@ function regionsOf(diffData: Buffer, width: number, height: number, cell = 8): D
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4;
-      // pixelmatch paints mismatches in diffColor (255, 0, 80).
-      if (diffData[i] === 255 && diffData[i + 1] === 0 && diffData[i + 2] === 80) hits[Math.floor(y / cell) * cols + Math.floor(x / cell)]!++;
+      if (isDiffPixel(diffData, i)) hits[Math.floor(y / cell) * cols + Math.floor(x / cell)]!++;
     }
   }
   const seen = new Uint8Array(cols * rows);

@@ -13,6 +13,8 @@ export interface FakePluginOptions {
   fileKey?: string;
   selection?: string[];
   origin?: string;
+  /** Report Figma's window as hidden (exports are refused). */
+  hidden?: boolean;
   /** Paint exported PNGs with this colour (to simulate a design render). */
   paint?: (x: number, y: number, w: number, h: number) => [number, number, number];
 }
@@ -30,6 +32,11 @@ export function solidPng(w: number, h: number, paint: (x: number, y: number) => 
     }
   }
   return PNG.sync.write(png);
+}
+
+function paintsOf(node: any): string[] {
+  const own = [...(node.fills ?? []), ...(node.strokes ?? [])].map((p: any) => (p.color ? `${p.color.r},${p.color.g},${p.color.b}` : p.type));
+  return [...own, ...(node.children ?? []).flatMap(paintsOf)];
 }
 
 export function connectFakePlugin(o: FakePluginOptions): Promise<WebSocket> {
@@ -52,6 +59,7 @@ export function connectFakePlugin(o: FakePluginOptions): Promise<WebSocket> {
           pageName: "Home",
           editorType: "figma",
           selection: sel,
+          hidden: o.hidden,
         }),
       ),
     );
@@ -87,7 +95,9 @@ async function handle(o: FakePluginOptions, method: string, params: any): Promis
       for (const id of params.ids) {
         const n = f.nodes.get(id);
         if (params.format === "SVG") {
-          blobs.push({ id, name: n.name, format: "SVG", data: `<svg width="${n.width}" height="${n.height}"><path fill="#F5A524" d="M0 0h1v1z"/></svg>`, encoding: "utf8", w: n.width, h: n.height });
+          // Same paints and size → same SVG, like Figma's export of identical drawings.
+          const svg = `<svg width="${n.width}" height="${n.height}"><path fill="#F5A524" d="M0 0h1v1z" data-paints="${paintsOf(n).join(" ")}"/></svg>`;
+          blobs.push({ id, name: n.name, format: "SVG", data: svg, encoding: "utf8", w: n.width, h: n.height });
         } else {
           const scale = params.width ? params.width / n.width : params.scale ?? 2;
           const w = Math.round(n.width * scale);

@@ -37,10 +37,10 @@
   function render(state) {
     var dot = $("dot");
     dot.className = "dot" + (connected ? " ok" : "");
-    $("status").textContent = connected ? "Connected to your agent" : "Waiting for the Loupe MCP server…";
+    $("status").textContent = connected ? "Connected to your agent" : "Waiting for Loupe…";
     $("detail").textContent = connected
       ? "Read-only. Keep this open while the agent reads the design."
-      : "Start Claude Code (or any MCP client) with Loupe configured. Port " + PORT + ".";
+      : "Run any loupe command (or start an agent with the Loupe MCP server). Port " + PORT + ".";
     var sel = (state && state.selection) || [];
     var box = $("sel");
     if (sel.length === 0) {
@@ -72,7 +72,7 @@
   function connect() {
     if (!hello) return;
     try { ws = new WebSocket("ws://localhost:" + PORT); } catch (e) { scheduleReconnect(); return; }
-    ws.onopen = function () { send(hello); };
+    ws.onopen = function () { send(Object.assign({}, hello, { hidden: document.hidden })); };
     ws.onmessage = function (ev) {
       var msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
@@ -104,6 +104,9 @@
       send({ t: "res", id: msg.id, ok: msg.ok, result: msg.result, error: msg.error });
     }
   };
+
+  // Figma stops rendering exports while hidden; tell the hub so it can say so instead of waiting.
+  document.addEventListener("visibilitychange", function () { send({ t: "visibility", hidden: document.hidden }); });
 
   post({ type: "ready" });
 </script>

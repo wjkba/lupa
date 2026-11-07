@@ -263,8 +263,14 @@ export class Renderer {
     if (isInstance && node.inst) for (const [k, v] of Object.entries(node.inst.props)) props.push(`${k}=${v}`);
     // An icon instance renamed by the designer: keep which icon it is.
     if (svgInstance && showName) props.push(`icon:${this.comps.label(node.inst?.mainId, node.inst?.variant)}`);
-    const geo = { ...node.geo };
-    if (geo.w && geo.w === geo.h && (geo.w === "hug" || geo.w === "fill")) {
+    // Instance sizes are always the instance's own; say "fixed" where the component would hug.
+    const geo: Record<string, string> = {};
+    for (const axis of ["w", "h"] as const) {
+      const v = node.geo[axis] ?? (def && /^(hug|fill)/.test(def.ir.geo[axis] ?? "") ? "fixed" : undefined);
+      if (v) geo[axis] = v;
+    }
+    Object.assign(geo, node.geo);
+    if (geo.w && geo.w === geo.h && (geo.w === "hug" || geo.w === "fill" || geo.w === "fixed")) {
       // Both axes share a mode: one flag instead of two.
       const mode = geo.w;
       delete geo.w;

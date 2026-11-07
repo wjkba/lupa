@@ -27,6 +27,8 @@ export interface PluginInfo {
   selection: SelectionItem[];
   /** ms epoch of the last selection/page change, used to pick the "active" file. */
   activeAt: number;
+  /** Figma's window or tab is hidden; Figma does not render exports until it is visible. */
+  hidden?: boolean;
 }
 
 export interface SelectionItem {
@@ -187,6 +189,7 @@ export interface HelloPlugin {
   editorType: string;
   user?: string;
   selection: SelectionItem[];
+  hidden?: boolean;
 }
 
 export interface HelloPeer {
@@ -201,6 +204,12 @@ export interface StateUpdate {
   pageName: string;
   fileName: string;
   selection: SelectionItem[];
+}
+
+/** Plugin UI → hub: the Figma window/tab was hidden or shown. */
+export interface VisibilityUpdate {
+  t: "visibility";
+  hidden: boolean;
 }
 
 export interface RequestMsg {
@@ -236,6 +245,7 @@ export type AnyMsg =
   | HelloPlugin
   | HelloPeer
   | StateUpdate
+  | VisibilityUpdate
   | RequestMsg
   | ResponseMsg
   | PluginsMsg

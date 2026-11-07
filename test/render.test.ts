@@ -119,4 +119,44 @@ describe("instance overrides", () => {
     expect(out).toContain("~ Meta: hidden");
     expect(out).toContain("~ Status: swap→Cross");
   });
+
+  it("states instance sizing against the component, and names unnamed layers by id", async () => {
+    const f = new FakeFile();
+    const set = f.componentSet("Tab", { State: { type: "VARIANT", defaultValue: "Default", variantOptions: ["Default"] } });
+    const tab = f.component(
+      {
+        name: "State=Default",
+        w: 60,
+        h: 33,
+        layoutMode: "HORIZONTAL",
+        layoutSizingHorizontal: "HUG",
+        // Fills its variant set's auto layout: meaningless where instances go.
+        layoutSizingVertical: "FILL",
+        children: [
+          {
+            type: "FRAME",
+            name: "Frame 517",
+            w: 40,
+            h: 17,
+            layoutMode: "HORIZONTAL",
+            children: [{ type: "TEXT", name: "Count", text: "00", w: 20, h: 17, fills: [solid("#111111")] }],
+          },
+        ],
+      },
+      set,
+      { State: "Default" },
+    );
+    const count = tab.children[0].children[0];
+    const bar = f.node({ type: "FRAME", name: "Tabs", w: 300, h: 33, layoutMode: "HORIZONTAL" });
+    const props = { State: { type: "VARIANT", value: "Default" } };
+    f.instance(tab, bar, { w: 90, layoutSizingHorizontal: "FIXED" }, { [count.id]: { text: "7" } }, props);
+    f.instance(tab, bar, { x: 100, layoutSizingHorizontal: "HUG" }, {}, props);
+
+    const snap = await snapshot(f.api, [bar], { ids: [bar.id] }, { fileName: "F", pageName: "P" });
+    const out = renderSnapshot(snap).text;
+    expect(line(out, `Tab{State=Default} #${tab.id}`)).toBe(`Tab{State=Default} #${tab.id} 60×33 w:hug; row`);
+    expect(out).toMatch(/instance Tab\{State=Default\} #\S+ 90×33 w:fixed; h:fill\n/);
+    expect(out).toMatch(/instance Tab\{State=Default\} #\S+ 60×33 w:hug; h:fill$/m);
+    expect(out).toContain(`~ #${tab.children[0].id}/Count: "7"`);
+  });
 });

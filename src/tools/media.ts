@@ -3,15 +3,15 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Bridge } from "../bridge/hub";
-import { slug } from "../model/build";
+import { isDefaultName, slug } from "../model/build";
 import { n } from "../model/css";
 import type { RawNode, RawSnapshot } from "../shared/raw";
-import { crop, decodePng, diff, encodePng, flatten, resize, sideBySide, tiles, VISION_MAX_EDGE, type Raster } from "../image/png";
+import { crop, decodePng, diff, encodePng, flatten, isDiffPixel, resize, sideBySide, tiles, VISION_MAX_EDGE, type Raster } from "../image/png";
 
-export interface ImageBlock {
-  type: "image";
-  data: string;
-  mimeType: "image/png";
+/** Text for the agent plus PNG images (vision-sized). */
+export interface Visual {
+  text: string;
+  images: Buffer[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -23,10 +23,10 @@ export async function screenshot(
   ids: string[],
   file: string | undefined,
   opts: { scale?: number; saveTo?: string },
-): Promise<{ text: string; images: ImageBlock[] }> {
+): Promise<Visual> {
   const head = await bridge.request("snapshot", { ids, depth: 0, components: false }, file);
   const lines: string[] = [];
-  const images: ImageBlock[] = [];
+  const images: Buffer[] = [];
   for (const root of head.roots) {
     // Retina by default, but never wider than the model can see without downscaling.
     const scale = opts.scale ?? Math.max(0.1, Math.min(2, VISION_MAX_EDGE / Math.max(root.w, 1)));
@@ -49,7 +49,7 @@ export async function screenshot(
       `"${root.name}" #${root.id} ${n(root.w)}×${n(root.h)} → ${parts.length} image${parts.length > 1 ? "s" : ""}, 1 design px = ${n(visionScale)} image px` +
         (parts.length > 1 ? ` (tiles top to bottom, starting at y=${parts.map((p) => n(p.y)).join(", ")})` : ""),
     );
-    for (const p of parts) images.push({ type: "image", data: encodePng(p.tile).toString("base64"), mimeType: "image/png" });
+    for (const p of parts) images.push(encodePng(p.tile));
   }
   if (head.missing.length) lines.push(`not found: ${head.missing.join(", ")}`);
   return { text: lines.join("\n"), images };
@@ -67,39 +67,48 @@ function withSuffix(file: string, suffix: string): string {
 interface GraphicAsset {
   nodeId: string;
   name: string;
+  /** File name stem: the layer's own name, or its nearest meaningfully named ancestor's. */
+  base: string;
   uses: number;
 }
 
 interface ImageAsset {
   hash: string;
   name: string;
+  base: string;
   nodeId: string;
   uses: number;
 }
 
+/** Names that make poor file names: Figma's defaults and generic wrappers. */
+const VAGUE_NAME = /^(container|wrapper|content|inner|box|div|layer)(\s+\d+)?$/i;
+const meaningful = (name: string) => !!name.trim() && !isDefaultName(name) && !VAGUE_NAME.test(name.trim());
+
 function collect(snap: RawSnapshot): { graphics: Map<string, GraphicAsset>; images: Map<string, ImageAsset> } {
   const graphics = new Map<string, GraphicAsset>();
   const images = new Map<string, ImageAsset>();
-  const walk = (node: RawNode) => {
+  const walk = (node: RawNode, context: string | undefined) => {
     if (node.stub) return;
+    const base = (name: string) => (meaningful(name) ? name : (context ?? name));
     if (node.graphic) {
       const c = node.mainComponentId ? snap.components[node.mainComponentId] : undefined;
       const key = c ? `c:${c.id}` : `n:${node.id}`;
       const name = c ? (c.setName ? `${c.setName} ${Object.values(c.variant ?? {}).join(" ")}` : c.name) : node.name;
       const g = graphics.get(key);
       if (g) g.uses++;
-      else graphics.set(key, { nodeId: node.id, name, uses: 1 });
+      else graphics.set(key, { nodeId: node.id, name, base: base(name), uses: 1 });
       return;
     }
     for (const p of node.fills ?? []) {
       if (p.type !== "IMAGE" || p.visible === false || !p.imageHash) continue;
       const img = images.get(p.imageHash);
       if (img) img.uses++;
-      else images.set(p.imageHash, { hash: p.imageHash, name: node.name, nodeId: node.id, uses: 1 });
+      else images.set(p.imageHash, { hash: p.imageHash, name: node.name, base: base(node.name), nodeId: node.id, uses: 1 });
     }
-    node.children?.forEach(walk);
+    const inner = meaningful(node.name) ? node.name : context;
+    node.children?.forEach((c) => walk(c, inner));
   };
-  snap.roots.forEach(walk);
+  snap.roots.forEach((r) => walk(r, undefined));
   return { graphics, images };
 }
 
@@ -157,6 +166,8 @@ export async function exportAssets(
     return `No vector graphics or image fills under ${ids.join(", ")}. To export the layers themselves, call again with as:"png" or as:"svg".`;
   }
 
+  // Different layers often draw the same icon: write each distinct SVG once.
+  const written = new Map<string, { line: number; uses: number; also: string[] }>();
   const gl = [...graphics.values()];
   for (let i = 0; i < gl.length; i += 40) {
     const batch = gl.slice(i, i + 40);
@@ -168,10 +179,23 @@ export async function exportAssets(
         lines.push(`failed svg "${g.name}" #${g.nodeId}: ${res.errors.find((e) => e.id === g.nodeId)?.error ?? "no data"}`);
         continue;
       }
-      const name = fileName(g.name, "svg");
-      await writeFile(path.join(dir, name), opts.currentColor ? toCurrentColor(b.data) : b.data);
-      lines.push(`${name} ← svg "${g.name}" #${g.nodeId} ${n(b.w)}×${n(b.h)}${g.uses > 1 ? ` (used ${g.uses}×)` : ""}`);
+      const svg = opts.currentColor ? toCurrentColor(b.data) : b.data;
+      const same = written.get(svg);
+      if (same) {
+        same.uses += g.uses;
+        same.also.push(`#${g.nodeId}`);
+        continue;
+      }
+      const name = fileName(g.base, "svg");
+      await writeFile(path.join(dir, name), svg);
+      written.set(svg, { line: lines.length, uses: g.uses, also: [] });
+      lines.push(`${name} ← svg "${g.name}" #${g.nodeId} ${n(b.w)}×${n(b.h)}`);
     }
+  }
+  for (const w of written.values()) {
+    if (w.uses < 2) continue;
+    const also = w.also.length > 12 ? [...w.also.slice(0, 12), `+${w.also.length - 12}`] : w.also;
+    lines[w.line] += ` (used ${w.uses}×${also.length ? `; also for ${also.join(" ")}` : ""})`;
   }
 
   const il = [...images.values()];
@@ -186,7 +210,7 @@ export async function exportAssets(
         continue;
       }
       const buf = Buffer.from(got.data, "base64");
-      const name = fileName(img.name, imageExt(buf));
+      const name = fileName(img.base, imageExt(buf));
       await writeFile(path.join(dir, name), buf);
       lines.push(`${name} ← src:${img.hash.slice(0, 10)} "${img.name}" #${img.nodeId}${got.w ? ` ${got.w}×${got.h}px original` : ""}${img.uses > 1 ? ` (used ${img.uses}×)` : ""}`);
     }
@@ -229,18 +253,45 @@ function layerAt(list: Box[], x: number, y: number): Box | undefined {
   return best;
 }
 
+/** Differing pixels inside text layers (padded by 2 design px for glyph overhang). */
+function textMismatch(diffImg: Raster, list: Box[], scale: number): number {
+  const { width, height, data } = diffImg;
+  const mask = new Uint8Array(width * height);
+  const pad = 2;
+  for (const b of list) {
+    if (b.node.type !== "TEXT") continue;
+    const x0 = Math.max(0, Math.floor((b.x - pad) * scale));
+    const x1 = Math.min(width, Math.ceil((b.x + b.w + pad) * scale));
+    const y0 = Math.max(0, Math.floor((b.y - pad) * scale));
+    const y1 = Math.min(height, Math.ceil((b.y + b.h + pad) * scale));
+    for (let y = y0; y < y1; y++) mask.fill(1, y * width + x0, y * width + Math.max(x0, x1));
+  }
+  let count = 0;
+  for (let p = 0; p < mask.length; p++) if (mask[p] && isDiffPixel(data, p * 4)) count++;
+  return count;
+}
+
+/** Font families used by the text layers under `root`. */
+export function fontFamilies(root: RawNode): string[] {
+  const out = new Set<string>();
+  const walk = (node: RawNode) => {
+    node.segments?.forEach((s) => out.add(s.fontFamily));
+    node.children?.forEach(walk);
+  };
+  walk(root);
+  return [...out];
+}
+
+/** Diff an implementation PNG against `root` (a snapshot without components) exported at the same width. */
 export async function compare(
   bridge: Bridge,
-  id: string,
+  root: RawNode,
   file: string | undefined,
-  opts: { image: string; threshold?: number; saveDiff?: string },
-): Promise<{ text: string; images: ImageBlock[] }> {
-  const actualBuf = await readFile(opts.image);
+  opts: { image: string | Buffer; threshold?: number; saveDiff?: string; note?: string },
+): Promise<Visual> {
+  const actualBuf = typeof opts.image === "string" ? await readFile(opts.image) : opts.image;
   const actual = flatten(decodePng(actualBuf));
-  const snap = await bridge.request("snapshot", { ids: [id], components: false, maxNodes: 8000 }, file);
-  const root = snap.roots[0];
-  if (!root || root.stub) throw new Error(`Node ${id} not found or hidden`);
-  const res = await bridge.request("export", { ids: [id], format: "PNG", width: actual.width, exactBounds: true }, file);
+  const res = await bridge.request("export", { ids: [root.id], format: "PNG", width: actual.width, exactBounds: true }, file);
   if (!res.blobs.length) throw new Error(res.errors[0]?.error ?? "export failed");
   let design = flatten(decodePng(Buffer.from(res.blobs[0]!.data, "base64")));
   if (design.width !== actual.width) design = resize(design, actual.width, (design.height * actual.width) / design.width);
@@ -261,11 +312,21 @@ export async function compare(
   lines.push(`mismatch: ${n(d.ratio * 100)}% of pixels (${d.mismatched}/${d.total})${d.ratio < 0.005 ? " — visually matching" : ""}`);
 
   const list = boxes(root);
-  for (const r of d.regions.slice(0, 10)) {
-    const cx = (r.x + r.w / 2) / scale;
-    const cy = (r.y + r.h / 2) / scale;
-    const hit = layerAt(list, cx, cy);
-    const where = hit ? ` ~ ${hit.node.type.toLowerCase()} "${hit.node.name}" #${hit.node.id}` : "";
+  if (d.mismatched) {
+    const inText = textMismatch(d.diff, list, scale);
+    const other = d.mismatched - inText;
+    lines.push(
+      `  ${inText} px inside text layers (glyph rendering, a fallback font or different text); ${other} px elsewhere` +
+        (other / d.total < 0.001 ? " — layout and non-text layers match" : ""),
+    );
+  }
+  if (opts.note) lines.push(`  ${opts.note}`);
+  // Non-text regions first: they are layout or styling problems, while text regions are often only font rendering.
+  const located = d.regions.map((r) => ({ r, hit: layerAt(list, (r.x + r.w / 2) / scale, (r.y + r.h / 2) / scale) }));
+  located.sort((p, q) => Number(p.hit?.node.type === "TEXT") - Number(q.hit?.node.type === "TEXT"));
+  for (const { r, hit } of located.slice(0, 10)) {
+    const name = hit && hit.node.name.length > 40 ? `${hit.node.name.slice(0, 39)}…` : hit?.node.name;
+    const where = hit ? ` ~ ${hit.node.type.toLowerCase()} "${name}" #${hit.node.id}` : "";
     lines.push(`  region ${n(r.x / scale)},${n(r.y / scale)} ${n(r.w / scale)}×${n(r.h / scale)} (design px), ${r.pixels} px differ${where}`);
   }
   if (d.regions.length > 10) lines.push(`  … +${d.regions.length - 10} smaller regions`);
@@ -281,5 +342,5 @@ export async function compare(
     strip = resize(strip, strip.width * s, strip.height * s);
   }
   lines.push("image: design | implementation | diff (red = different)");
-  return { text: lines.join("\n"), images: [{ type: "image", data: encodePng(strip).toString("base64"), mimeType: "image/png" }] };
+  return { text: lines.join("\n"), images: [encodePng(strip)] };
 }

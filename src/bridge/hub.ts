@@ -29,10 +29,17 @@ import {
   type ResponseMsg,
 } from "../shared/protocol";
 
-export const SERVER_VERSION = "0.1.0";
+export const SERVER_VERSION = "0.2.0";
 
-const TIMEOUTS: Partial<Record<Method, number>> = { snapshot: 180_000, export: 180_000, find: 120_000, tokens: 60_000 };
+const TIMEOUTS: Partial<Record<Method, number>> = { snapshot: 180_000, export: 90_000, find: 120_000, tokens: 60_000 };
 const DEFAULT_TIMEOUT = 60_000;
+
+/** Raster exports need Figma's renderer, which stops while its window or tab is hidden. */
+function renders(method: string, params: unknown): boolean {
+  return method === "export" && (params as { format?: string } | undefined)?.format !== "SVG";
+}
+export const HIDDEN_ERROR =
+  "Figma's window or tab is in the background, and Figma does not render images until it is visible. Bring Figma to the front (it can stay behind other windows on most systems, but not minimized or in a background tab) and retry.";
 const MAX_PAYLOAD = 512 * 1024 * 1024;
 
 export function allowedOrigin(origin: string | undefined): "plugin" | "peer" | false {
@@ -65,6 +72,8 @@ export interface BridgeOptions {
   port?: number;
   host?: string;
   log?: (msg: string) => void;
+  /** auto (default): become the hub if the port is free, else a peer. hub/peer: only that role, one attempt. */
+  role?: "auto" | "hub" | "peer";
 }
 
 export class Bridge {
@@ -79,16 +88,24 @@ export class Bridge {
   private peerPlugins: PluginInfo[] = [];
   private readonly pending = new Map<string, Pending>();
   /** Hub: forwarded request id → the peer socket and its own id. */
-  private readonly forwarded = new Map<string, { ws: WebSocket; id: string; conn: string }>();
+  private readonly forwarded = new Map<string, { ws: WebSocket; id: string; conn: string; method: string; at: number }>();
   private heartbeat?: ReturnType<typeof setInterval>;
   private closed = false;
   private starting?: Promise<void>;
   private readonly waiters = new Set<() => void>();
+  private readonly want: "auto" | "hub" | "peer";
+  private activeAt = Date.now();
 
   constructor(opts: BridgeOptions = {}) {
     this.port = opts.port ?? Number(process.env.LOUPE_PORT ?? DEFAULT_PORT);
     this.host = opts.host ?? "127.0.0.1";
     this.log = opts.log ?? (() => {});
+    this.want = opts.role ?? "auto";
+  }
+
+  /** Milliseconds since this process last handled or forwarded a request. */
+  get idleMs(): number {
+    return Date.now() - this.activeAt;
   }
 
   get mode(): "hub" | "peer" | "starting" {
@@ -158,9 +175,11 @@ export class Bridge {
 
   async request<M extends Method>(method: M, params: MethodMap[M]["params"], target?: string): Promise<MethodMap[M]["result"]> {
     if (this.role === "starting") await this.start();
+    this.activeAt = Date.now();
     const timeout = TIMEOUTS[method] ?? DEFAULT_TIMEOUT;
     if (this.role === "hub") {
       const plugin = this.pick(target);
+      if (plugin.hidden && renders(method, params)) throw new Error(HIDDEN_ERROR);
       const conn = this.plugins.get(plugin.conn);
       if (!conn) throw new Error("The Figma plugin disconnected; run it again.");
       return (await this.send(conn.ws, { t: "req", id: randomUUID(), method, params }, timeout, plugin.conn)) as MethodMap[M]["result"];
@@ -180,7 +199,10 @@ export class Bridge {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(msg.id);
-        reject(new Error(`Figma did not answer "${msg.method}" within ${Math.round(timeout / 1000)}s. Large selections take longer; try a smaller frame or a lower depth.`));
+        const why = renders(msg.method, msg.params)
+          ? "If Figma's window was minimized or in a background tab, bring it to the front and retry; otherwise try a smaller frame or scale."
+          : "Large selections take longer; try a smaller frame or a lower depth.";
+        reject(new Error(`Figma did not answer "${msg.method}" within ${Math.round(timeout / 1000)}s. ${why}`));
       }, timeout);
       this.pending.set(msg.id, { resolve, reject, timer, conn });
       ws.send(JSON.stringify(msg), (err) => {
@@ -203,6 +225,9 @@ export class Bridge {
   }
 
   private async elect(): Promise<void> {
+    if (this.want === "hub" && !(await this.tryListen())) throw new Error(`Port ${this.port} is in use (another Loupe hub is probably running).`);
+    if (this.want === "peer" && !(await this.tryConnect())) throw new Error(`No Loupe hub is running on port ${this.port}.`);
+    if (this.want !== "auto") return;
     for (let attempt = 0; attempt < 20 && !this.closed; attempt++) {
       if (await this.tryListen()) return;
       if (await this.tryConnect()) return;
@@ -330,6 +355,7 @@ export class Bridge {
             protocol: h.protocol,
             selection: h.selection ?? [],
             activeAt: Date.now(),
+            hidden: h.hidden === true,
           };
           this.plugins.set(conn, { ws, info, alive: true });
           ws.on("pong", () => {
@@ -352,12 +378,20 @@ export class Bridge {
           const fwd = this.forwarded.get(msg.id);
           if (fwd) {
             this.forwarded.delete(msg.id);
+            this.log(`← ${fwd.method} ${msg.ok ? "ok" : `failed: ${msg.error}`} in ${Date.now() - fwd.at} ms`);
             if (fwd.ws.readyState === WebSocket.OPEN) fwd.ws.send(JSON.stringify({ ...msg, id: fwd.id }));
           } else this.settle(msg);
         } else if (msg.t === "state") {
           const c = this.plugins.get(conn!);
           if (c) {
             Object.assign(c.info, { pageId: msg.pageId, pageName: msg.pageName, fileName: msg.fileName, selection: msg.selection ?? [], activeAt: Date.now() });
+            this.broadcast();
+          }
+        } else if (msg.t === "visibility") {
+          const c = this.plugins.get(conn!);
+          if (c && c.info.hidden !== msg.hidden) {
+            c.info.hidden = msg.hidden;
+            this.log(`"${c.info.fileName}" is ${msg.hidden ? "hidden" : "visible"}`);
             this.broadcast();
           }
         }
@@ -379,8 +413,14 @@ export class Bridge {
           ws.send(JSON.stringify({ t: "res", id: msg.id, ok: false, error: "plugin disconnected" }));
           return;
         }
+        if (target.info.hidden && renders(msg.method, msg.params)) {
+          ws.send(JSON.stringify({ t: "res", id: msg.id, ok: false, error: HIDDEN_ERROR }));
+          return;
+        }
         const id = randomUUID();
-        this.forwarded.set(id, { ws, id: msg.id, conn: target.info.conn });
+        this.activeAt = Date.now();
+        this.forwarded.set(id, { ws, id: msg.id, conn: target.info.conn, method: msg.method, at: Date.now() });
+        this.log(`→ ${msg.method} (peer) to "${target.info.fileName}"`);
         target.ws.send(JSON.stringify({ t: "req", id, method: msg.method, params: msg.params }));
       }
     });

@@ -124,7 +124,11 @@ export class Builder {
   def(mainId: string): IRNode | undefined {
     if (!this.defCache.has(mainId)) {
       const tree = this.snap.components[mainId]?.tree;
-      this.defCache.set(mainId, tree ? this.node(tree, undefined) : null);
+      const ir = tree ? this.node(tree, undefined) : null;
+      // A component's own "fill" refers to its variant set's layout, not to where instances go.
+      if (ir?.geo.w === "fill") delete ir.geo.w;
+      if (ir?.geo.h === "fill") delete ir.geo.h;
+      this.defCache.set(mainId, ir);
     }
     return this.defCache.get(mainId) ?? undefined;
   }

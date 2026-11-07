@@ -18,7 +18,7 @@ The output has up to three sections. **## tokens** resolves the `$name`, `T<n>` 
 
 | Prop | Meaning (CSS equivalent) |
 |---|---|
-| `w:fill` `h:hug` `fill` `hug` | Sizing on that axis. `fill` = stretch (`flex: 1` / `align-self: stretch`), `hug` = fit content. A bare `fill`/`hug` means both axes. No prop means fixed `W×H`. |
+| `w:fill` `h:hug` `fill` `hug` | Sizing on that axis. `fill` = stretch (`flex: 1` / `align-self: stretch`), `hug` = fit content. A bare `fill`/`hug` means both axes. No prop means fixed `W×H`. An instance prints `w:fixed`/`h:fixed` (bare `fixed` for both) where its component would hug. |
 | `minw` `maxw` `minh` `maxh` | min/max width/height. |
 | `row` `col` `grid` | Auto layout: `display:flex` row/column, or CSS grid. |
 | `gap` `rowgap` `wrap` | `gap` / `row-gap` / `flex-wrap: wrap`. |
@@ -71,7 +71,7 @@ text #15:1 312×28 w:fill; h:hug; font:$Heading/H3; color:$text/primary; text-al
     ~ Icon: color:#000000
 ```
 
-- A component used two or more times is printed once in `## components` with its property API (`*` marks the default variant). Instances list their props, their own sizing and position, and `~ path: change` lines for real overrides: text, style, `hidden`/`shown`, or `swap→Other`. Layer paths are relative to the instance; `[2]` disambiguates siblings that share a name. Changes that a component property drives are not repeated.
+- A component used two or more times is printed once in `## components` with its property API (`*` marks the default variant). Instances list their props, their own sizing and position, and `~ path: change` lines for real overrides: text, style, `hidden`/`shown`, or `swap→Other`. Layer paths are relative to the instance; `[2]` disambiguates siblings that share a name, and layers with Figma's default names (`Frame 517`), which definition lines hide, appear as their definition id (`#6:958/00`). A definition does not print `fill` on its root: that refers to the variant set's own layout, not to where instances go. Changes that a component property drives are not repeated.
 - A component used once is expanded in place.
 - `components:"names"` prints instances as single lines (useful when the codebase already has the components). `components:"inline"` expands every instance.
 

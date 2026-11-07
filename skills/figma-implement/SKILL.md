@@ -1,46 +1,71 @@
 ---
 name: figma-implement
-description: Implement a Figma frame or component faithfully in code using the Loupe MCP tools (get_design, get_screenshot, export_assets, compare_screenshot). Use when the user shares a Figma link, mentions "the selected frame" in Figma, or asks to build or match UI from a Figma design.
+description: Implement a Figma frame or component faithfully in code with the `loupe` CLI (design, screenshot, assets, compare). Use when the user shares a Figma link, mentions the selected frame in Figma, or asks to build or match UI from a Figma design.
 ---
 
 # Implementing a Figma design with Loupe
 
-Loupe reads the live Figma file through a plugin, and it is read-only. If a tool says no file is connected, ask the user to run *Plugins → Development → Loupe* in that file and keep the plugin window open.
+`loupe` reads the live Figma file through the Loupe plugin, and it is read-only. Run `loupe status` first.
+
+- **"command not found":** ask the user to run `npm link` in the Loupe folder.
+- **No file connected:** ask the user to open the file in Figma, run *Plugins → Development → Loupe*, and keep the plugin window open.
+
+The target is a Figma URL (in quotes, because it contains `&`), node ids like `12:34`, or nothing for the current selection. When a session also has the Loupe MCP tools (`get_design`, …), they take the same options.
 
 ## 1. Read
 
-1. `get_design` with the Figma URL, or with no target to use the current selection. Read the whole output before writing code.
-   - `## tokens` lists the design tokens. Map every `$name` onto the codebase's existing tokens (Tailwind theme, CSS variables, theme object). Search the codebase for the value or the `var(--…)` name. Use raw values only when nothing matches.
-   - `## components` contains components used more than once. If the codebase already has the component (Button, Input, …), use it and map its props. Otherwise build it once.
-   - A `… +N layers not shown → get_design #id` line means part of the tree was cut. Call `get_design` on that id before you build that part. Don't guess its contents.
-   - If the codebase already has most components, `components: "names"` gives a smaller output.
-2. `get_screenshot` on the same target to see the intent: hierarchy, alignment, what is decorative.
-3. `export_assets` writes the icons (SVG) and images into a folder. Move them to the project's asset location and follow its icon conventions (sprite, React components, `currentColor`). Pass `current_color: true` for monochrome icons that should inherit colour.
+1. Run `loupe design [target]` and read the whole output before writing code. The format is described at the end of this file.
+   - `## tokens` lists the design tokens. Map every `$name` onto the codebase's existing tokens (Tailwind theme, CSS variables, theme object). Search the codebase for the value or the `var(--…)` name, and use raw values only when nothing matches.
+   - `## components` holds the components used more than once. If the codebase already has one (Button, Input, …), use it and map its props. Otherwise build it once. `--components names` gives a smaller output when the codebase already has most of them.
+   - `… +N layers not shown → get_design #id` means part of the tree was cut. Run `loupe design <id>` before building that part. Don't guess its contents.
+2. Run `loupe screenshot [target]` and open the printed `image:` file to see the intent: hierarchy, alignment, what is decorative.
+3. Run `loupe assets [target] -d <the project's asset folder>`. It writes the icons as SVG and the images as their original files. Add `--current-color` for monochrome icons that should inherit the text colour. Follow the project's icon conventions (sprite, components).
 
 ## 2. Build
 
-- Translate the props literally:
-  - `row`/`col` → flex, `grid` → CSS grid.
-  - `gap`, `p:t,r,b,l`, `justify`, `align` → the matching flex properties.
-  - `fill` → `flex: 1` or `align-self: stretch` along that axis.
-  - `hug` → auto size.
-  - A size without `fill`/`hug` is fixed. On responsive containers, prefer the hug/fill semantics over hard-coding the frame width.
-- `abs; at:x,y; pin:…` → `position: absolute` with `left`/`top` (or `right`/`bottom`, following `pin`).
-- Values such as `bg:linear-gradient(…)`, `shadow:`, `blur:` and `border:` are already CSS. Copy them as they are.
-- `font:` is a typography token. Use the matching text style when the project has one, and keep the exact line-height and letter-spacing.
-- Text `~ "run"` lines are inline spans (links, bold words) inside that text.
-- Notes (`// note:`, `// on click → …`) come from the designer: annotations, prototype interactions, dev status. Honour them.
-- Use the real text from the design, not placeholders.
+- **Layout:**
+  - `row`/`col` → flex; `grid` → CSS grid.
+  - `gap`, `p:t,r,b,l`, `justify` and `align` map to the flex properties of the same meaning.
+  - `fill` → `flex: 1` or `align-self: stretch` on that axis; `hug` → auto size.
+  - A size without `fill` or `hug` is fixed. On responsive containers, prefer the fill/hug behaviour over hard-coding the frame width.
+- **Positioning:** `abs; at:x,y; pin:…` → `position: absolute` with `left`/`top`, or `right`/`bottom` when `pin` says so.
+- **Values:** `bg:`, `shadow:`, `blur:` and `border:` are already CSS. Copy them as they are.
+- **Typography:** `font:` is a typography token. Use the project's matching text style and keep its exact line-height and letter-spacing.
+- **Text runs:** `~ "run"` lines under a text are inline spans (links, bold words) inside that text.
+- **Notes:** `// note:` and `// on click → …` come from the designer (annotations, prototype interactions, dev status). Follow them.
+- **Content:** use the real text from the design, not placeholders.
 
 ## 3. Verify
 
-1. Render your implementation at the frame's width (Playwright, Storybook, or a dev-server screenshot) and save a PNG.
-2. `compare_screenshot` with `image: <path>` and the same target. It returns the mismatch % and the regions that differ, named by Figma layer.
-3. Fix the named layers. Check that row's props in `get_design` rather than eyeballing. Repeat until the remaining mismatch is just font anti-aliasing or intentional (dynamic data, a responsive width).
-4. When the design itself is unclear, use `get_css` on a layer to see Figma's own CSS, as a cross-check.
+1. Start the page that shows your implementation (dev server, Storybook).
+2. Run `loupe compare [target] --url <page url> --selector <css selector of the element>`. Loupe renders the page at the design's width and prints the mismatch % and the differing regions, each named by its Figma layer. It also writes a design | implementation | diff image. Open that image.
+   - If the page can't be rendered here, take a PNG screenshot of the element and pass `--image <png>` instead.
+3. Fix the named layers. Compare against that layer's line in `loupe design`, not by eye. Repeat until the remaining mismatch is font anti-aliasing or intended (dynamic data, a responsive width).
+4. When the design itself is unclear, `loupe css <id>` shows Figma's own Dev Mode CSS as a cross-check.
 
-## Other tools
+## Other commands
 
-- `get_outline` lists the pages and top-level frames when the user names a screen but gives no link. `find_nodes` searches by layer name or text.
-- `get_tokens` dumps the file's variables and styles (`format: "css"` or `"json"`) to bootstrap a theme.
-- `status` shows connected files and the current selection.
+- `loupe outline` lists the pages and top-level frames, for when the user names a screen but gives no link.
+- `loupe find <text>` searches layer names; add `--text` to search text content.
+- `loupe tokens --format css` dumps the file's variables and styles, to bootstrap a theme.
+- `loupe help` lists every option.
+
+## Output format
+
+```
+get_design format — one line per layer, children indented:
+  <kind> ["name"] #id W×H props…   kinds: frame group section component set instance text svg img rect ellipse line
+  Props are CSS-like, separated by "; ". A bare word is a flag.
+  Size: W×H are px. w:/h: fill|hug (bare "fill"/"hug" = both axes); no w/h = fixed. Instances say w:fixed/h:fixed (or bare "fixed") where their component hugs. minw/maxw/minh/maxh.
+  Flow (auto layout): row|col|grid, gap, rowgap, wrap, p (CSS padding shorthand, commas), justify (center|end|between), align (center|end|baseline). Children of a flow parent are positioned by the flow.
+  Free position: at:x,y = CSS left/top inside the parent; abs = absolutely positioned inside a flow parent; pin:right|bottom|center-x|left+right… = constraints (how it moves when the parent resizes); rotate:<deg> (CSS sign).
+  Style: bg (CSS background, topmost layer first), border:<width> [dashed(…)] <color> [outside|center] (default inside → box-sizing: border-box), radius (full = pill), smooth (corner smoothing), shadow/text-shadow (CSS), blur/backdrop (CSS blur() radius, already halved from Figma), opacity, blend, clip (overflow hidden), mask.
+  img: src:<hash> cover|contain|crop|tile → file from export_assets. svg: vector graphic → export_assets; color: its fill.
+  Text: font:<token>; color; text-align; valign; ellipsis; content last as a JSON string. "~" lines under text = styled runs that differ from the base style.
+  $name = design token (Figma variable/style); see "## tokens". T1, E1 = repeated typography/effect values listed there. "$name=value" = token bound but resolved to another value here (mode/override).
+  Components: "## components" prints each repeated component once. "instance Name{Variant=…} Prop=value" uses it; "~ path: changes" lines list only what that instance overrides (path = layer names, or #id for unnamed layers of the definition).
+  "+N more like ↑" / "+N more alternating like the 2 above" = siblings with the same structure as the layer(s) just printed; the lines under it give each one's id and its own texts/images.
+  "… +N layers not shown → get_design #id" = cut by the token budget; fetch that subtree when you need it.
+  // lines = designer notes, prototype interactions, component props, exports.
+Reproduce exact values (sizes, spacing, colours, type). Map $tokens to the codebase's existing tokens/variables when they exist.
+```

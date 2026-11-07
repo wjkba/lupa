@@ -13,6 +13,7 @@ export function formatStatus(plugins: PluginInfo[], role: string, port: number):
   const lines = [`Loupe ${role} on port ${port}. Connected files (most recently active first):`];
   for (const p of plugins) {
     lines.push(`- "${p.fileName}"${p.fileKey ? ` (key ${p.fileKey})` : ""} · page "${p.pageName}" · ${p.editorType} · plugin ${p.pluginVersion}`);
+    if (p.hidden) lines.push("    Figma is in the background: screenshots and image exports wait until its window/tab is visible");
     if (p.selection.length) {
       for (const s of p.selection.slice(0, 8)) lines.push(`    selected: ${s.type.toLowerCase()} "${s.name}" #${s.id} ${s.w}×${s.h}`);
       if (p.selection.length > 8) lines.push(`    … +${p.selection.length - 8} more selected`);
