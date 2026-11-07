@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm sheet</title>
+<style>
+  /* Figma variables (## tokens) */
+  :root {
+    --White: #ffffff;
+    --Title: #181818;
+    --Body: #555555;
+    --Blue: #2b64e3;
+    /* SF Pro Text is the system font on Apple platforms. */
+    --font: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #ffffff; }
+
+  /* #5:780  375×354  hug; col; gap:32; p:24,32,34; radius:10,10,0,0 */
+  .sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    width: 375px;
+    padding: 24px 32px 34px;
+    background: var(--White);
+    border-radius: 10px 10px 0 0;
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* #5:781  col; gap:16; align:center */
+  .sheet__content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  /* #5:782  48×48 icon, color:#2b64e3 */
+  .sheet__icon {
+    display: block;
+    width: 48px;
+    height: 48px;
+    color: var(--Blue);
+  }
+
+  /* Text boxes use Figma's rendered line heights (line-height: normal for SF Pro Text),
+     so the layout keeps its size when a fallback font is used. */
+
+  /* #5:786  T1 = SF Pro Text 600 18 */
+  .sheet__title {
+    width: 100%;
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 21px;
+    color: var(--Title);
+    text-align: center;
+  }
+
+  /* #5:787  T2 = SF Pro Text 400 14, 3 lines in 311px */
+  .sheet__body {
+    width: 100%;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 17px;
+    color: var(--Body);
+    text-align: center;
+  }
+
+  .sheet__actions {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* T3 = SF Pro Text 500 15 */
+  .button {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin: 0;
+    border: 0;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 18px;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  /* #5:788  311×54  row; p:18,16; bg:$Blue; radius:10 */
+  .button--primary {
+    padding: 18px 16px;
+    background: var(--Blue);
+    color: var(--White);
+    border-radius: 10px;
+  }
+
+  /* #5:790  311×26  row; p:0,0,8; radius:10 */
+  .button--text {
+    padding: 0 0 8px;
+    background: transparent;
+    color: var(--Blue);
+    border-radius: 10px;
+  }
+
+  .button:focus-visible {
+    outline: 2px solid var(--Blue);
+    outline-offset: 2px;
+  }
+</style>
+</head>
+<body>
+  <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-body">
+    <div class="sheet__content">
+      <!-- assets/icon-48-default-safety.svg, inlined so it takes currentColor -->
+      <svg class="sheet__icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 42C24 42 38.5 34.8 38.5 24V11.4L24 6L9.5 11.4V24C9.5 34.8 24 42 24 42Z" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M26 21C26 22.1046 25.1046 23 24 23C22.8954 23 22 22.1046 22 21C22 19.8954 22.8954 19 24 19C25.1046 19 26 19.8954 26 21Z" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M24 23V28" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h2 class="sheet__title" id="sheet-title">Title goes here</h2>
+      <p class="sheet__body" id="sheet-body">Lorem ipsum dolorem non deserunt ullamco est sit aliqua dolor do amet sint. Velit officia consequat duis enim velit mollit.</p>
+    </div>
+    <div class="sheet__actions">
+      <button class="button button--primary" type="button">Confirm</button>
+      <button class="button button--text" type="button">Cancel</button>
+    </div>
+  </section>
+</body>
+</html>

@@ -1,0 +1,111 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12px 14px;
+    font: 12px/16px Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--figma-color-text, #111);
+    background: var(--figma-color-bg, #fff);
+  }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #f5a623; flex: none; }
+  .dot.ok { background: #14ae5c; }
+  .dot.bad { background: #f24822; }
+  .title { font-weight: 600; }
+  .muted { color: var(--figma-color-text-secondary, #6b6b6b); margin-top: 6px; overflow-wrap: anywhere; }
+  .sel { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--figma-color-bg-secondary, #f5f5f5); }
+  .sel b { font-weight: 600; }
+  code { font: 11px/14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+  <div class="row"><span id="dot" class="dot"></span><span id="status" class="title">Starting…</span></div>
+  <div id="detail" class="muted"></div>
+  <div id="sel" class="sel" hidden></div>
+<script>
+  // Must match DEFAULT_PORT in src/shared/protocol.ts and the manifest's allowedDomains.
+  var PORT = 38451;
+  var ws = null, hello = null, connected = false, retryMs = 500, retryTimer = null;
+
+  function $(id) { return document.getElementById(id); }
+  function post(msg) { parent.postMessage({ pluginMessage: msg }, "*"); }
+
+  function render(state) {
+    var dot = $("dot");
+    dot.className = "dot" + (connected ? " ok" : "");
+    $("status").textContent = connected ? "Connected to your agent" : "Waiting for the Loupe MCP server…";
+    $("detail").textContent = connected
+      ? "Read-only. Keep this open while the agent reads the design."
+      : "Start Claude Code (or any MCP client) with Loupe configured. Port " + PORT + ".";
+    var sel = (state && state.selection) || [];
+    var box = $("sel");
+    if (sel.length === 0) {
+      box.hidden = false;
+      box.innerHTML = "Nothing selected — select a frame, then ask your agent to <b>implement the selection</b>.";
+    } else {
+      box.hidden = false;
+      var first = sel[0];
+      box.innerHTML = "<b>" + escapeHtml(first.name) + "</b> · " + first.type.toLowerCase() + " " + first.w + "×" + first.h +
+        " · <code>" + escapeHtml(first.id) + "</code>" + (sel.length > 1 ? " +" + (sel.length - 1) + " more" : "");
+    }
+    post({ type: "resize", height: document.body.scrollHeight + 4 });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; });
+  }
+
+  function send(obj) {
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+  }
+
+  function scheduleReconnect() {
+    if (retryTimer) return;
+    retryTimer = setTimeout(function () { retryTimer = null; connect(); }, retryMs);
+    retryMs = Math.min(retryMs * 1.6, 4000);
+  }
+
+  function connect() {
+    if (!hello) return;
+    try { ws = new WebSocket("ws://localhost:" + PORT); } catch (e) { scheduleReconnect(); return; }
+    ws.onopen = function () { send(hello); };
+    ws.onmessage = function (ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.t === "welcome") {
+        connected = true; retryMs = 500; render(hello);
+      } else if (msg.t === "req") {
+        post({ type: "req", id: msg.id, method: msg.method, params: msg.params });
+      }
+    };
+    ws.onclose = function () {
+      var was = connected;
+      connected = false; ws = null;
+      if (was) render(hello);
+      scheduleReconnect();
+    };
+    ws.onerror = function () { /* onclose follows */ };
+  }
+
+  window.onmessage = function (event) {
+    var msg = event.data && event.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === "init") {
+      hello = msg.hello; render(hello); connect();
+    } else if (msg.type === "state") {
+      hello = Object.assign({}, hello, msg.state);
+      render(hello);
+      send({ t: "state", pageId: msg.state.pageId, pageName: msg.state.pageName, fileName: msg.state.fileName, selection: msg.state.selection });
+    } else if (msg.type === "res") {
+      send({ t: "res", id: msg.id, ok: msg.ok, result: msg.result, error: msg.error });
+    }
+  };
+
+  post({ type: "ready" });
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "Loupe (read-only design reader)",
+  "id": "loupe-read-only-design-reader",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma", "dev"],
+  "capabilities": ["inspect"],
+  "documentAccess": "dynamic-page",
+  "enablePrivatePluginApi": true,
+  "networkAccess": {
+    "allowedDomains": ["ws://localhost:38451"],
+    "reasoning": "Loupe sends the design you ask for to the Loupe MCP server running on this machine (localhost only), which hands it to your coding agent. Nothing leaves your computer."
+  }
+}

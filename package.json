@@ -1,0 +1,52 @@
+{
+  "name": "figma-loupe",
+  "version": "0.1.0",
+  "description": "Read-only Figma MCP server + plugin for pixel-faithful design-to-code with a small context footprint.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "figma-loupe": "dist/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p plugin/tsconfig.json",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test && npm run build",
+    "demo": "tsx scripts/demo.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "pixelmatch": "7.1.0",
+    "pngjs": "7.0.0",
+    "ws": "8.22.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "1.142.0",
+    "@types/node": "20.19.9",
+    "@types/pngjs": "6.0.5",
+    "@types/ws": "8.18.1",
+    "esbuild": "0.25.8",
+    "tsx": "4.23.15",
+    "typescript": "5.9.2",
+    "vitest": "4.1.12"
+  },
+  "files": [
+    "dist",
+    "plugin/manifest.json",
+    "plugin/dist",
+    "README.md",
+    "skills"
+  ],
+  "keywords": [
+    "figma",
+    "mcp",
+    "design-to-code",
+    "claude",
+    "model-context-protocol"
+  ]
+}
