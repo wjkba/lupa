@@ -1,0 +1,10 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+const [cmd, ...args] = process.argv.slice(2);
+const c = new Client({ name: "list", version: "1" });
+await c.connect(new StdioClientTransport({ command: cmd, args, env: process.env, stderr: "ignore" }));
+const { tools } = await c.listTools();
+const defs = JSON.stringify(tools).length;
+console.log(`tools: ${tools.length}, definitions: ${defs} chars`);
+for (const t of tools) console.log(`${t.name}\t${t.annotations?.readOnlyHint === true ? "RO" : t.annotations?.destructiveHint ? "DESTRUCTIVE" : "?"}\t${(t.description ?? "").replace(/\s+/g, " ").slice(0, 90)}`);
+await c.close();

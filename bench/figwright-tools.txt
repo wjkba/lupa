@@ -1,0 +1,136 @@
+tools: 135, definitions: 262237 chars
+ping	RO	Health check. Returns server info plus, when a plugin is connected, end-to-end info from t
+get_selection	RO	Return the current selection on the active Figma page: { pageId, pageName, nodes }, where 
+get_document	RO	Return the full node tree (recursive children) of the active Figma page, with base geometr
+get_node	RO	Return one node by id with its full recursive subtree at maximum fidelity — every serializ
+get_nodes_info	RO	Return multiple Figma nodes by id. Output preserves input order; missing ids slot null.
+get_vector	RO	Read a vector’s geometry — what set_vector takes back: vectorPaths (SVG path data per subp
+get_metadata	RO	Return file metadata: fileName, current page, all page references, and which editor the fi
+get_pages	RO	Return every page in the active Figma file as { id, name, flows }. flows lists the prototy
+search_nodes	RO	Search the node tree by case-insensitive name substring and/or exact node type. At least o
+scan_text_nodes	RO	Return every TEXT node within a subtree, each with its characters / fontSize / fontName — 
+scan_nodes_by_types	RO	Return a flat list of every node whose type is in `types`, searched recursively through a 
+get_styles	RO	Return the document's local styles grouped as { paints, texts, effects, grids }. Paint sty
+get_variable_defs	RO	Return the document's local variables as { collections, variables }. Each collection lists
+get_local_components	RO	Return the components and component sets within a node subtree (or the current selection) 
+get_component_api	RO	Return a component's full property API — the prop contract behind its instances. Pass a CO
+get_viewport	RO	Return the current page viewport as { center, zoom, bounds } — the on-screen center point,
+get_fonts	RO	Return every font used on the current page as { fonts: [{ fontName, count }] }, sorted by 
+get_annotations	RO	Return Dev Mode annotations as { annotations: [{ nodeId, nodeName, annotations }] }. With 
+get_reactions	RO	Return the prototype reactions on a node as { nodeId, reactions: [{ trigger, actions }] }.
+get_motion_styles	RO	List the file's available Figma Motion animation-style presets — the templates you apply w
+get_node_motion	RO	Read one node's Figma Motion (animation) state: applied animation styles, all keyframe ani
+get_motion_context	RO	List every Figma Motion (animation) source under a node: the node and its whole subtree, h
+list_files	RO	Return every Figma file that currently has the Figwright plugin open, as { files: [{ sessi
+use_file	RO	Claim one open Figma file for this agent, so its tool calls stop following whichever file 
+get_design_context	RO	Get a depth-limited, token-efficient node tree — the main design-grounding read; prefer it
+get_screenshot	RO	Export nodes as images the model can see, one image block per node: { images: [{ nodeId, f
+save_screenshots	RO	Export nodes and write them to disk under outDir: { saved: [{ nodeId, format, path, recove
+save_image_fills	RO	Extract the ORIGINAL image bytes behind each node's IMAGE fills and write them to disk und
+export_pdf	RO	Export a node (or the current page) to a single-page vector PDF file on disk. Figma's plug
+export_video	RO	Export an animated Figma top-level frame to an MP4 / WebM / GIF file on disk. Pass any nod
+analyze_project	RO	Detect the local project profile (framework, language, styling system, component file exte
+scan_components	RO	Scan the local project for existing UI components so they can be reused instead of regener
+component_map	RO	Map the Figma component instances in a selection/subtree to existing local code components
+token_map	RO	Map the document's Figma variables — and its shared paint styles (single solid color style
+icon_map	RO	Map the Figma icon nodes in a selection/subtree to the project's existing `.svg` files, so
+design_diff	RO	Diff a Figma node against a saved baseline of itself, so after a design changes you edit o
+set_fills	?	Set a node's fills. SOLID: { type:'SOLID', color:{r,g,b} } (0–1). Gradient: { type:'GRADIE
+set_text	?	Replace the entire text content of a TEXT node or of text on a path (TEXT_PATH); the plugi
+set_text_properties	?	Set a TEXT node's (or text on a path's) typography and layout/overflow properties. Typogra
+set_text_range	?	Style character ranges of an existing TEXT node — the write-side mirror of a read segment,
+create_frame	?	Create a frame — the primary container for UI and the only node that hosts auto-layout — o
+set_opacity	?	Set a node's layer opacity from 0 (transparent) to 1 (opaque); this multiplies with any fi
+set_visible	?	Show or hide a node by toggling its `visible` flag. A hidden node stays in the layer tree 
+rename_node	?	Rename a single canvas node's layer name; does not affect a component's name elsewhere or 
+delete_nodes	DESTRUCTIVE	Permanently delete nodes by id; missing or non-removable nodes are skipped. To hide nodes 
+create_text	?	Create a new TEXT node with the given characters (default font loaded automatically), opti
+create_rectangle	?	Create a rectangle, optionally sized/positioned and appended to a parent (default: current
+set_corner_radius	?	Set a node's corner radius and/or corner smoothing. Pass radius for a uniform radius, and/
+set_strokes	?	Set a node's strokes (SOLID, gradient or PATTERN paints, same shape as set_fills) plus opt
+move_nodes	?	Translate nodes by (dx, dy). Nodes without a position are skipped. Returns { ok, affected 
+align_nodes	?	Align nodes to their parent's bounds or to each other, and/or space them evenly — Figma's 
+create_shape	?	Create a LINE, POLYGON or STAR, optionally sized/positioned and appended to a parent (defa
+boolean_nodes	?	Combine shapes into one editable boolean group: UNION merges them, SUBTRACT cuts the upper
+flatten_nodes	?	Flatten nodes into a single vector layer (Figma’s Flatten): shapes, text and boolean group
+repeat_nodes	?	Wrap layers in a repeat group (Figma Draw), which draws their content several times and st
+set_repeat	?	Replace how a repeat group (TRANSFORM_GROUP — from repeat_nodes, or drawn in Figma Draw) r
+create_text_path	?	Set text along a path (Figma Draw): turn a shape, line or vector into text that follows it
+set_text_path	?	Move where text on a path (TEXT_PATH) starts: a segment of its path and 0–1 along it — the
+set_complex_stroke	?	Give a node's stroke a Figma Draw look — a brush, a hand-drawn wobble or a width that vari
+create_vector	?	Draw a vector — one editable VECTOR layer, no wrapper frame — from its geometry: vectorPat
+set_vector	?	Redraw an existing VECTOR’s geometry: vectorPaths (SVG path data) or vectorNetwork (vertic
+outline_stroke	?	Outline a node’s stroke — Figma’s Outline Stroke: a new VECTOR (a GROUP of glyph outlines 
+set_position	?	Set a node's exact position (x / y), relative to its parent — for a top-level node these a
+resize_nodes	?	Resize nodes to the given width × height (width at least 0.01 px). A LINE takes the width 
+set_auto_layout	?	Configure a frame's auto layout. layoutMode NONE disables it; HORIZONTAL/VERTICAL enable f
+set_layout_props	?	Set a node's sizing, child properties and content clipping. clipsContent controls whether 
+set_layout_grids	?	Set a frame's own layout grids — the responsive column/row scaffold laid over it (the 12-c
+set_blend_mode	?	Set how a node composites with the layers beneath it (NORMAL, MULTIPLY, SCREEN, OVERLAY, D
+set_mask	?	Set whether a node is a mask — a mask clips its later siblings to its own shape. Pass isMa
+set_arc	?	Turn an ellipse into a pie slice / gauge or a ring / donut by setting its arc data. starti
+set_constraints	?	Set how a node responds when its parent frame is resized, via horizontal and vertical cons
+rotate_nodes	?	Set absolute rotation (degrees) on nodes. Nodes without rotation are skipped. Returns { ok
+flip_nodes	?	Mirror nodes in place — Figma’s Flip horizontal / Flip vertical: HORIZONTAL swaps left and
+lock_nodes	?	Lock nodes so they can't be selected or edited on the canvas (e.g. backgrounds); locking a
+unlock_nodes	?	Unlock nodes so they can be selected and edited on the canvas again — the inverse of lock_
+clone_node	?	Duplicate a node — including its full subtree — and place the copy as a sibling right afte
+set_effects	?	Set a node's effects. Shadows (DROP_SHADOW / INNER_SHADOW) need color + offset; blurs need
+create_paint_style	?	Create a reusable local paint (color) style from SOLID or gradient paints (same shape as s
+create_text_style	?	Create a reusable local text style (a typography token) that can be applied to TEXT nodes 
+create_effect_style	?	Create a local effect style. Shadows (DROP_SHADOW / INNER_SHADOW) need color + offset; blu
+create_grid_style	?	Create a reusable local layout-grid style for aligning content. Each grid pattern is GRID 
+update_paint_style	?	Update an existing paint style by id. Any of name / paints / description may be omitted to
+update_text_style	?	Update an existing text style (typography token) by id. Any of name / fontName / fontSize 
+update_effect_style	?	Update an existing effect style by id. Any of name / effects / description may be omitted 
+apply_style_to_node	?	Bind a shared style to a node. `field` selects which slot the style applies to: fill / str
+import_style	?	Import a published library paint, text, effect or grid style by its key into the current f
+delete_style	DESTRUCTIVE	Delete a local style (paint / text / effect / grid) by id. Returns { ok, styleId, name }.
+create_variable_collection	?	Create a variable collection. Figma auto-creates a default mode. Returns { ok, collectionI
+update_variable_collection	?	Rename a variable collection and/or its modes. Either of name / modes may be omitted to le
+add_variable_mode	?	Add a mode (e.g. "Dark") to a variable collection. Returns { ok, modeId, name }. Mode coun
+create_variable	?	Create a variable in a collection with resolvedType BOOLEAN / FLOAT / STRING / COLOR / EAS
+set_variable_value	?	Set a variable's value for one mode (modeId comes from the variable's collection). value m
+bind_variable_to_node	?	Bind a variable to a node field (e.g. width, height, characters, itemSpacing, topLeftRadiu
+bind_variable_to_paint	?	Bind a COLOR variable to a SOLID fill or stroke paint (the design-token way to colour a no
+import_variable	?	Import a published library variable by its key into the current file. Returns { ok, variab
+set_node_variable_mode	?	Switch a node to one of a variable collection's modes — the Dark (or another theme, brand 
+rename_variable	?	Rename a variable (e.g. "color/primary" → "color/brand"); use slashes in the name for fold
+set_variable_code_syntax	?	Declare a variable's code-side token name per platform (codeSyntax) — the write half of th
+delete_variable	DESTRUCTIVE	Delete a single variable by id; any node or paint bound to it reverts to its raw value. To
+delete_variable_mode	DESTRUCTIVE	Remove a mode from a variable collection, freeing the slot it holds — mode count is gated 
+delete_variable_collection	DESTRUCTIVE	Delete a variable collection by id, removing the collection and every variable and mode in
+group_nodes	?	Group nodes under their shared parent. nodeIds must be a non-empty list. Returns { ok, nod
+ungroup_nodes	DESTRUCTIVE	Ungroup GROUP nodes by id — and repeat groups (TRANSFORM_GROUP, from repeat_nodes or Figma
+reparent_nodes	?	Move nodes into a different parent, optionally inserting at `index` (default: appended las
+reorder_nodes	?	Reorder nodes within their current parent by inserting each at `index` (0 = bottom of the 
+find_replace_text	?	Replace a substring across all TEXT nodes under a scope (text set along a path is not sear
+batch_rename_nodes	?	Rename many nodes at once from a [{ nodeId, name }] list. Missing nodes are skipped. Retur
+add_page	?	Create a new page (optionally named). Returns { ok, nodeId, name, type }.
+delete_page	DESTRUCTIVE	Delete a page by id. The current page and the last remaining page cannot be deleted. Retur
+rename_page	?	Rename a Figma page (a top-level page/tab in the document) by id. Affects only the page na
+navigate_to_page	?	Switch the active page. Subsequent selection / read tools operate on this page. Returns { 
+set_reactions	?	Replace all of a node's prototype reactions — this overwrites existing reactions rather th
+remove_reactions	DESTRUCTIVE	Clear every prototype reaction from a node (equivalent to set_reactions with an empty arra
+update_flows	?	Rename, add, remove or reorder a page's prototype flows — the named starting points Presen
+swap_component	?	Swap an instance's main component. Provide componentKey (published component, imported via
+set_instance_properties	?	Set an instance's component properties (variant / boolean / text / instance-swap). Keys ar
+add_component_property	?	Declare a component property on a component (or its variant set): BOOLEAN (show/hide a lay
+bind_component_property	?	Attach a declared component property (from add_component_property) to a sublayer field so 
+edit_component_property	?	Change an existing component property: rename it, change its defaultValue, or (INSTANCE_SW
+delete_component_property	DESTRUCTIVE	Remove a BOOLEAN / TEXT / INSTANCE_SWAP property from a component and every sublayer refer
+detach_instance	DESTRUCTIVE	Detach a component instance into a plain frame, permanently breaking its link to the main 
+import_image	?	Import a raster image (PNG / JPG / GIF) and place it as a rectangle with an IMAGE fill. Pr
+set_image_fill	?	Put a raster image (PNG / JPG / GIF) into an existing node's fills — a photo into a card c
+import_svg	?	Import an SVG and place it as editable vector nodes (a FRAME of VECTOR paths) via createNo
+create_ellipse	?	Create an ellipse (a circle when width equals height), optionally sized/named/positioned u
+create_component	?	Create a reusable main component. Pass fromNodeId to convert an existing node into a compo
+create_section	?	Create a section: a canvas-level container for grouping and labelling regions of a page (e
+create_instance	?	Instantiate a component. Provide componentId (a local COMPONENT node) or componentKey (a p
+combine_as_variants	?	Combine two or more existing COMPONENT nodes into a single COMPONENT_SET (a variant set). 
+apply_animation_style	?	Apply a Figma Motion animation-style preset to a node (get styleIds from get_motion_styles
+remove_animation_style	DESTRUCTIVE	Remove an applied Figma Motion animation style from a node. Pass animationStyleId (the app
+apply_manual_keyframe_track	?	Set a hand-authored Figma Motion keyframe track on a node for one field — e.g. TRANSLATION
+remove_manual_keyframe_track	DESTRUCTIVE	Remove the manual Figma Motion keyframe track for a given field on a node. `field` selects
+set_timeline_duration	?	Set the duration (in seconds, must be > 0) of a Figma Motion timeline. Get the timelineId 
+batch	?	Apply multiple write ops atomically (all-or-nothing with rollback). ops is an ordered list
