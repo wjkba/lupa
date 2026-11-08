@@ -196,6 +196,7 @@ export class Components {
       changes.push(...props);
       const def = this.def(a);
       if (a.kind === "svg" || !a.children.length) {
+        if (a.kind === "svg" && a.style.src !== d.style.src && a.style.src) changes.push(`src:${a.style.src}`);
         if (a.kind === "svg" && a.style.color !== d.style.color && a.style.color) changes.push(`color:${a.style.color}`);
         if (changes.length) out.push({ path, changes });
       } else if (def) {

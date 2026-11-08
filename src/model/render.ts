@@ -11,7 +11,7 @@
  */
 
 import type { RawNode, RawSnapshot } from "../shared/raw";
-import { Builder, isDefaultName, type IRNode } from "./build";
+import { Builder, isDefaultName, type AssetFiles, type IRNode } from "./build";
 import { Components, type ComponentMode, type Override } from "./components";
 import { n } from "./css";
 
@@ -21,6 +21,8 @@ export interface RenderOptions {
   components?: ComponentMode;
   /** Max characters of text content printed per text layer. */
   maxText?: number;
+  /** Asset files already written: graphics and images then print `src:<file>`. */
+  files?: AssetFiles & { dir: string; failures: string[] };
 }
 
 export interface RenderResult {
@@ -74,9 +76,9 @@ export class Renderer {
 
   constructor(
     private readonly snap: RawSnapshot,
-    opts: RenderOptions = {},
+    private readonly opts: RenderOptions = {},
   ) {
-    this.b = new Builder(snap);
+    this.b = new Builder(snap, opts.files);
     this.comps = new Components(this.b, opts.components ?? "auto");
     this.budgetChars = Math.max(1500, (opts.budget ?? 10000) * CHARS_PER_TOKEN);
     this.maxText = opts.maxText ?? 2000;
@@ -194,7 +196,11 @@ export class Renderer {
     const fonts = this.fonts([...roots, ...[...this.comps.defs.values()].filter((d) => charged.has(d.mainId)).map((d) => d.ir)]);
     if (fonts) head.push(`fonts: ${fonts}`);
     const assets = this.assets(roots);
-    if (assets) head.push(`assets: ${assets} → export_assets`);
+    const files = this.opts.files;
+    if (files) {
+      const count = new Set([...files.byNode.values(), ...files.byImage.values()]).size;
+      head.push(`assets: ${count} file${count === 1 ? "" : "s"} in ${files.dir}/, named by src: on each layer${files.failures.length ? ` (${files.failures.length} failed → export_assets)` : ""}`);
+    } else if (assets) head.push(`assets: ${assets} → export_assets`);
     if (cut) head.push(`budget: tree cut breadth-first at ~${Math.round(this.budgetChars / CHARS_PER_TOKEN)} tokens — "not shown" markers say how to expand`);
     if (this.snap.stats.truncated) head.push(`warning: snapshot hit the node limit; some layers were not loaded`);
     if (this.snap.missing.length) head.push(`warning: not found: ${this.snap.missing.join(", ")}`);
@@ -444,7 +450,7 @@ export class Renderer {
     const strip = (o: Record<string, string>) =>
       Object.entries(o)
         .filter(([k]) => k !== "src" && k !== "at")
-        .map(([k, v]) => `${k}:${v.replace(/img\([0-9a-f]{6,}/g, "img(")}`)
+        .map(([k, v]) => `${k}:${v.replace(/img\([^\s)]+/g, "img(")}`)
         .join(";");
     const instProps = node.inst ? Object.entries(node.inst.props).filter(([, v]) => !v.startsWith('"')) : [];
     const s = JSON.stringify([
@@ -470,7 +476,8 @@ export class Renderer {
       if (x.raw.stub) return;
       if (x.text !== undefined) out.push(JSON.stringify(clip(x.text, 60)));
       if (x.inst) for (const [k, v] of Object.entries(x.inst.props)) if (v.startsWith('"')) out.push(`${k}=${clip(v, 60)}`);
-      if (x.image) out.push(`img:${x.image.slice(0, 10)}`);
+      if (x.image) out.push(`img:${this.b.files?.byImage.get(x.image) ?? x.image.slice(0, 10)}`);
+      if (x.kind === "svg" && x.style.src) out.push(`src:${x.style.src}`);
       x.children.forEach(walk);
     };
     walk(node);
@@ -540,6 +547,14 @@ function includedCost(it: Item): number {
 
 function includedRefs(it: Item): string[] {
   return it.out ? [] : [...it.defRefs, ...it.kids.flatMap(includedRefs)];
+}
+
+/** Ids of the components that rendering prints once under "## components". */
+export function printedDefs(snap: RawSnapshot, components: ComponentMode = "auto"): string[] {
+  const b = new Builder(snap);
+  const comps = new Components(b, components);
+  comps.plan(snap.roots.filter((r) => !r.stub).map((r) => b.node(r, undefined)));
+  return [...comps.defs.keys()];
 }
 
 export function renderSnapshot(snap: RawSnapshot, opts: RenderOptions = {}): RenderResult {

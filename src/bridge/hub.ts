@@ -40,6 +40,9 @@ function renders(method: string, params: unknown): boolean {
 }
 export const HIDDEN_ERROR =
   "Figma's window or tab is in the background, and Figma does not render images until it is visible. Bring Figma to the front (it can stay behind other windows on most systems, but not minimized or in a background tab) and retry.";
+
+/** Figma did not answer in time (as opposed to answering with an error). */
+export class RequestTimeout extends Error {}
 const MAX_PAYLOAD = 512 * 1024 * 1024;
 
 export function allowedOrigin(origin: string | undefined): "plugin" | "peer" | false {
@@ -173,10 +176,16 @@ export class Bridge {
     throw new Error(`No connected Figma file matches "${target}". Connected: ${list.map((p) => `"${p.fileName}"`).join(", ")}`);
   }
 
-  async request<M extends Method>(method: M, params: MethodMap[M]["params"], target?: string): Promise<MethodMap[M]["result"]> {
+  /** `timeoutMs` shortens the wait for this call; a late answer is then dropped. */
+  async request<M extends Method>(
+    method: M,
+    params: MethodMap[M]["params"],
+    target?: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<MethodMap[M]["result"]> {
     if (this.role === "starting") await this.start();
     this.activeAt = Date.now();
-    const timeout = TIMEOUTS[method] ?? DEFAULT_TIMEOUT;
+    const timeout = opts.timeoutMs ?? TIMEOUTS[method] ?? DEFAULT_TIMEOUT;
     if (this.role === "hub") {
       const plugin = this.pick(target);
       if (plugin.hidden && renders(method, params)) throw new Error(HIDDEN_ERROR);
@@ -187,10 +196,11 @@ export class Bridge {
     if (!this.hubSocket || this.hubSocket.readyState !== WebSocket.OPEN) {
       await this.start();
       // start() may have made this process the hub (the old hub exited).
-      if (this.mode === "hub") return this.request(method, params, target);
+      if (this.mode === "hub") return this.request(method, params, target, opts);
     }
     const ws = this.hubSocket!;
-    return (await this.send(ws, { t: "req", id: randomUUID(), method, params, target }, timeout + 5_000)) as MethodMap[M]["result"];
+    // The hub keeps its own timeout; wait a little longer for its answer unless told otherwise.
+    return (await this.send(ws, { t: "req", id: randomUUID(), method, params, target }, opts.timeoutMs ?? timeout + 5_000)) as MethodMap[M]["result"];
   }
 
   /* ---------------------------------------------------------------- */
@@ -202,7 +212,7 @@ export class Bridge {
         const why = renders(msg.method, msg.params)
           ? "If Figma's window was minimized or in a background tab, bring it to the front and retry; otherwise try a smaller frame or scale."
           : "Large selections take longer; try a smaller frame or a lower depth.";
-        reject(new Error(`Figma did not answer "${msg.method}" within ${Math.round(timeout / 1000)}s. ${why}`));
+        reject(new RequestTimeout(`Figma did not answer "${msg.method}" within ${Math.round(timeout / 1000)}s. ${why}`));
       }, timeout);
       this.pending.set(msg.id, { resolve, reject, timer, conn });
       ws.send(JSON.stringify(msg), (err) => {

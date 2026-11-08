@@ -115,9 +115,9 @@ A target is a Figma URL (quote it), node ids like `12:34` (several allowed), or 
 
 | CLI | MCP tool | What it does |
 |---|---|---|
-| `loupe design [target]` | `get_design` | The tree above: layout, exact sizes, CSS values, `$tokens`, component definitions plus instance overrides, notes and interactions. Breadth-first within a token budget (`--budget`, default 8000); cut subtrees name the id to fetch. Also `--components auto\|inline\|names`, `--depth`, `--hidden`, `--vectors`. |
+| `loupe design [target]` | `get_design` | The tree above: layout, exact sizes, CSS values, `$tokens`, component definitions plus instance overrides, notes and interactions. Breadth-first within a token budget (`--budget`, default 8000); cut subtrees name the id to fetch. Also `--components auto\|inline\|names`, `--depth`, `--hidden`, `--vectors`. `-d DIR` (MCP `assets_dir`) also writes the icons and images, as `loupe assets` does, and puts each file's path on its layer as `src:`; `--screenshot` adds a PNG. One call then covers what used to take three. |
 | `loupe screenshot [target]` | `get_screenshot` | PNG render(s) at up to 2×, scaled to what vision reads (≤1568 px) and tiled when tall. The CLI prints the file paths (`-o` to choose; `--full` also saves the full-resolution PNG). |
-| `loupe assets [target]` | `export_assets` | Writes every icon (SVG) and image (original bytes) inside the target to `-d` (default `figma-assets/`), deduplicated by component, identical SVG content and image hash, and maps files back to layers and `src:` hashes. Unnamed graphics (`Frame 810`) are named after their nearest named parent. `--as svg\|png` exports the target layers themselves; `--current-color` for monochrome icons. |
+| `loupe assets [target]` | `export_assets` | Writes every icon (SVG) and image (original bytes) inside the target to `-d` (default `figma-assets/`), deduplicated by identical SVG content and image hash, and maps files back to layers and `src:` hashes. Unnamed graphics (`Frame 810`) are named after their nearest named parent. `--as svg\|png` exports the target layers themselves; `--current-color` for monochrome icons. |
 | `loupe compare [target] --url <page> --selector <css>` | `compare_screenshot` | Renders your page in headless Chromium at the design's width (2×) and diffs it against Figma. Prints the mismatch %, how much of it is inside text layers, the design fonts the page can't load, and the differing regions mapped to Figma layers (non-text first), and writes a design / implementation / diff image. `--image <png>` compares a screenshot you took instead. |
 | `loupe tokens` | `get_tokens` | The file's variables (all modes) and styles: `--format list\|css\|json`, `--filter`. |
 | `loupe outline`, `loupe find <query>` | `get_outline`, `find_nodes` | A cheap map of pages and frames, and search by layer name (`--text` for text content). |
@@ -153,7 +153,13 @@ Figma (plugin sandbox)          plugin UI iframe        Loupe processes
 ## Troubleshooting
 
 - **"No Figma file is connected"**: run the plugin in the file (*Plugins → Development → Loupe*) and keep its window open.
-- **Screenshots, assets or compare say Figma is in the background, or hang**: Figma does not render images while its window is minimized or its browser tab is hidden. Reading the design still works. Bring Figma to the front and retry. Since Loupe 0.2.0 the plugin reports this, so you get an immediate message instead of a wait. After updating Loupe, re-run the plugin in Figma so it loads the new code.
+- **Screenshot or compare says it used Figma's SVG export**: Figma stops rendering images while its window is hidden. That includes a minimized window and a background browser tab, and on some systems a window that other windows cover. Reading the design still works.
+  - **What Loupe does:** if a PNG doesn't arrive within 10 s (`LOUPE_RASTER_WAIT_MS`), or the plugin reports a hidden window, Loupe renders the frame's SVG export in Chromium instead.
+  - **What differs:** the layout and glyphs match. Figma's SVG export can leave out background blur, newer effects and occasionally a stroke.
+  - **For an exact render**, bring Figma to the front and run the command again.
+  - **Without Chromium**, the command fails with a message telling you to bring Figma to the front.
+
+  After updating Loupe, re-run the plugin in Figma so it loads the new code.
 - **Hub log**: `loupe serve` writes to `$TMPDIR/loupe/hub.log` (`/tmp/loupe/hub.log` on Linux). It records every request with its duration.
 - **`compare --url` cannot start a browser**: see setup step 3, or set `LOUPE_BROWSER=/path/to/chrome`.
 - **Port in use**: set `LOUPE_PORT` (or pass `--port`). Then change `PORT` in `plugin/src/ui.html` and the port in `plugin/manifest.json` (`allowedDomains`), and rebuild.

@@ -5,10 +5,10 @@
  */
 
 import type { Bridge } from "../bridge/hub";
-import { renderSnapshot } from "../model/render";
+import { printedDefs, renderSnapshot } from "../model/render";
 import { renderUrl } from "./browser";
 import { formatMatches, formatOutline, formatStatus, formatTokens } from "./format";
-import { compare, exportAssets, fontFamilies, screenshot, type Visual } from "./media";
+import { compare, exportAssets, fontFamilies, screenshot, writeAssets, type Visual } from "./media";
 import { parseTarget } from "./target";
 
 export type ComponentsMode = "auto" | "inline" | "names";
@@ -20,6 +20,10 @@ export interface DesignOptions {
   depth?: number;
   includeHidden?: boolean;
   expandVectors?: boolean;
+  /** Also write the icons and images to this folder; each layer then names its file in `src:`. */
+  assetsDir?: string;
+  /** With assetsDir: monochrome SVG icons use currentColor. */
+  currentColor?: boolean;
   file?: string;
 }
 
@@ -95,7 +99,13 @@ export class Loupe {
       r.file,
     );
     if (!snap.roots.length) throw new Error(`Nothing found for ${r.ids.join(", ")}${snap.missing.length ? " (not in this file, or deleted)" : ""}`);
-    return renderSnapshot(snap, { budget: o.budget ?? 8000, components: o.components ?? "auto" }).text;
+    const opts = { budget: o.budget ?? 8000, components: o.components ?? "auto" };
+    if (!o.assetsDir) return renderSnapshot(snap, opts).text;
+    // Only the component definitions the output prints need their graphics written.
+    const defs = printedDefs(snap, opts.components);
+    const written = await writeAssets(this.bridge, snap, r.file, { dir: o.assetsDir, currentColor: o.currentColor, defs });
+    const text = renderSnapshot(snap, { ...opts, files: { ...written, dir: o.assetsDir } }).text;
+    return written.failures.length ? `${text}\n\n## asset export failures\n${written.failures.join("\n")}` : text;
   }
 
   async screenshot(o: { target?: string; scale?: number; saveTo?: string; file?: string }): Promise<Visual> {

@@ -131,9 +131,9 @@ export function imageShort(hash: string | null | undefined): string {
   return hash ? hash.slice(0, 10) : "missing";
 }
 
-/** Image paint → `img(<hash> cover)` plus crop/tile/filter details when present. */
-export function imagePaint(p: RawPaint): string {
-  const parts = [imageShort(p.imageHash)];
+/** Image paint → `img(<hash> cover)` plus crop/tile/filter details when present; `src` replaces the hash. */
+export function imagePaint(p: RawPaint, src = imageShort(p.imageHash)): string {
+  const parts = [src];
   switch (p.scaleMode) {
     case "FIT":
       parts.push("contain");

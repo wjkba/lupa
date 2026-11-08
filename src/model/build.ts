@@ -112,11 +112,20 @@ const KIND: Record<string, Kind> = {
   LINE: "line",
 };
 
+/** Files already written for the design's graphics (by layer id) and images (by hash). */
+export interface AssetFiles {
+  byNode: Map<string, string>;
+  byImage: Map<string, string>;
+}
+
 export class Builder {
   readonly reg: Registry;
   private readonly defCache = new Map<string, IRNode | null>();
 
-  constructor(readonly snap: RawSnapshot) {
+  constructor(
+    readonly snap: RawSnapshot,
+    readonly files?: AssetFiles,
+  ) {
     this.reg = new Registry(snap);
   }
 
@@ -272,7 +281,10 @@ export class Builder {
     if (p.type === "GRADIENT_LINEAR") return linearGradient(p, w, h, stopColor);
     if (p.type === "GRADIENT_RADIAL" || p.type === "GRADIENT_DIAMOND") return radialGradient(p, w, h, stopColor);
     if (p.type === "GRADIENT_ANGULAR") return conicGradient(p, w, h, stopColor);
-    if (p.type === "IMAGE") return imagePaint(p);
+    if (p.type === "IMAGE") {
+      const file = p.imageHash ? this.files?.byImage.get(p.imageHash) : undefined;
+      return imagePaint(p, file);
+    }
     if (p.type === "VIDEO") return `video(${imageShort(p.imageHash)})`;
     return p.type.toLowerCase();
   }
@@ -292,6 +304,8 @@ export class Builder {
     const bv = raw.boundVariables ?? {};
 
     if (raw.graphic) {
+      const file = this.files?.byNode.get(raw.id);
+      if (file) S.src = file;
       const cols = raw.graphic.colors.map((c, i) => {
         const v = raw.graphic!.colorVars?.[i];
         return c === "gradient" ? c : this.reg.color(c, { varId: v });

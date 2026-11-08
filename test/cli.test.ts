@@ -14,6 +14,9 @@ import { connectFakePlugin, solidPng } from "./fake-plugin";
 import { productCard } from "./scenes";
 
 const band = (x: number, y: number): [number, number, number] => (y >= 220 && y < 248 && x >= 24 && x < 336 ? [16, 24, 40] : [255, 255, 255]);
+/** The same drawing as `band`, as Figma's SVG export would give it. */
+const bandSvg = (w: number, h: number) => `<rect width="${w}" height="${h}" fill="#fff"/><rect x="24" y="220" width="312" height="28" fill="rgb(16,24,40)"/>`;
+const hasChromium = Boolean(process.env.LOUPE_BROWSER || cachedChromiums().length);
 
 async function cli(args: string[], bridge?: Bridge) {
   const out: string[] = [];
@@ -91,6 +94,17 @@ describe("cli with Figma", () => {
     expect(existsSync(path.join(dir, "assets", "icon-star.svg"))).toBe(true);
   });
 
+  it("design -d writes the assets and names them on their layers", async () => {
+    const out = path.join(dir, "design-assets");
+    const r = await cli(["design", "13:1", "-d", out], bridge);
+    expect(r.code).toBe(0);
+    expect((await readdir(out)).sort()).toEqual(["hero.png", "icon-arrow-right.svg", "icon-star.svg"]);
+    expect(r.out).toContain(`img "Hero" #14:1 312×180 w:fill; src:${out}/hero.png cover;`);
+    expect(r.out).toContain(`svg "Icon/Star" #34:1 16×16 src:${out}/icon-star.svg;`);
+    // Hidden by default, but the definition still names its file.
+    expect(r.out).toContain(`svg "Icon/Arrow right" #9:1 16×16 src:${out}/icon-arrow-right.svg;`);
+  });
+
   it("compare needs exactly one of --url and --image", async () => {
     expect((await cli(["compare"], bridge)).code).toBe(2);
     expect((await cli(["compare", "--url", "http://x", "--image", "y.png"], bridge)).code).toBe(2);
@@ -116,7 +130,7 @@ describe("cli with Figma", () => {
     expect(r.out.split("\n").find((l) => l.startsWith("  region"))).toMatch(/rectangle "Hero"/);
   });
 
-  it.skipIf(!process.env.LOUPE_BROWSER && !cachedChromiums().length)("renderUrl reports design fonts the page can't use", async () => {
+  it.skipIf(!hasChromium)("renderUrl reports design fonts the page can't use", async () => {
     const page = path.join(dir, "fonts.html");
     await writeFile(page, `<!doctype html><body style="margin:0"><p id="t" style="font-family:sans-serif">Hello</p></body>`);
     const r = await renderUrl({ url: pathToFileURL(page).href, width: 200, selector: "#t", fonts: ["Loupe No Such Font"] });
@@ -124,7 +138,7 @@ describe("cli with Figma", () => {
     expect(r.missingFonts).toEqual(["Loupe No Such Font"]);
   }, 60_000);
 
-  it.skipIf(!process.env.LOUPE_BROWSER && !cachedChromiums().length)("compare --url renders the page at the design's width", async () => {
+  it.skipIf(!hasChromium)("compare --url renders the page at the design's width", async () => {
     const page = path.join(dir, "page.html");
     await writeFile(
       page,
@@ -170,6 +184,74 @@ describe("assets", () => {
       await hub.close();
     }
   });
+
+  it("writes instances of one component separately when they draw different things", async () => {
+    const port = 47000 + Math.floor(Math.random() * 2000);
+    const hub = new Bridge({ port });
+    await hub.start();
+    const f = new FakeFile();
+    const button = f.component({ name: "Icon button", w: 32, h: 32, children: [{ type: "VECTOR", name: "Glyph", w: 20, h: 20, x: 6, y: 6, fills: [solid("#000000")] }] });
+    const screen = f.node({ type: "FRAME", name: "Toolbar", w: 200, h: 32, children: [{ type: "TEXT", name: "Title", text: "Edit", w: 60, h: 16, x: 120, fills: [solid("#000000")] }] });
+    f.instance(button, screen, { x: 0 });
+    f.instance(button, screen, { x: 40 });
+    // Same component, another drawing inside (like a swapped nested icon).
+    const odd = f.instance(button, screen, { x: 80 }, { [button.children[0].id]: { fills: [solid("#b42318")] } });
+    const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
+    try {
+      await hub.waitForPlugin(2000);
+      const dir = await mkdtemp(path.join(tmpdir(), "loupe-assets-"));
+      const r = await cli(["assets", "-d", dir], hub);
+      expect(r.out).toMatch(/^Wrote 2 file\(s\)/);
+      // Identical instances of one component: counted, not listed by id.
+      expect(r.out).toMatch(/icon-button\.svg ← svg "Icon button" #\S+ 32×32 \(used 2×\)\n/);
+      expect(r.out).toContain(`icon-button-2.svg ← svg "Icon button" #${odd.id} 32×32`);
+      expect((await readdir(dir)).sort()).toEqual(["icon-button-2.svg", "icon-button.svg"]);
+    } finally {
+      ws.close();
+      await hub.close();
+    }
+  });
+});
+
+describe("design with an assets folder", () => {
+  it("writes the files and names each one on its layer, in the tree and the component definitions", async () => {
+    const port = 47000 + Math.floor(Math.random() * 2000);
+    const hub = new Bridge({ port });
+    await hub.start();
+    const f = new FakeFile();
+    const button = f.component({
+      name: "Icon button",
+      w: 64,
+      h: 32,
+      children: [
+        { type: "VECTOR", name: "Glyph", w: 20, h: 20, x: 6, y: 6, fills: [solid("#000000")] },
+        { type: "TEXT", name: "Label", text: "Go", w: 24, h: 16, x: 32, y: 8, fills: [solid("#000000")] },
+      ],
+    });
+    const screen = f.node({ type: "FRAME", name: "Toolbar", w: 240, h: 32, layoutMode: "HORIZONTAL", itemSpacing: 8, children: [] });
+    f.instance(button, screen);
+    f.instance(button, screen);
+    // Same component, another drawing inside (like a swapped nested icon).
+    const odd = f.instance(button, screen, {}, { [button.children[0].id]: { fills: [solid("#b42318")] } });
+    const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
+    try {
+      await hub.waitForPlugin(2000);
+      const dir = path.join(await mkdtemp(path.join(tmpdir(), "loupe-design-")), "icons");
+      const r = await cli(["design", "-d", dir], hub);
+      expect(r.code).toBe(0);
+      expect((await readdir(dir)).sort()).toEqual(["glyph-2.svg", "glyph.svg"]);
+      expect(r.out).toContain(`assets: 2 files in ${dir}/, named by src: on each layer`);
+      expect(r.out).not.toContain("export_assets");
+      const [defs, tree] = r.out.split("## design");
+      // The definition names the shared file; only the instance that draws something else names its own.
+      expect(defs).toMatch(/svg "Glyph" .*src:\S+\/glyph\.svg/);
+      expect(tree).not.toContain("glyph.svg");
+      expect(tree).toContain(`#${odd.id} 64×32\n    ~ Glyph: src:${dir}/glyph-2.svg; color:#b42318`);
+    } finally {
+      ws.close();
+      await hub.close();
+    }
+  });
 });
 
 describe("hidden Figma window", () => {
@@ -185,9 +267,15 @@ describe("hidden Figma window", () => {
       await peer.waitForPlugin(2000);
       expect((await cli(["status"], peer)).out).toContain("Figma is in the background");
       await expect(hub.request("export", { ids: [card.id], format: "PNG" })).rejects.toThrow(HIDDEN_ERROR);
+      // Screenshots fall back to the SVG export, which needs Chromium.
       const r = await cli(["screenshot", "-o", path.join(tmpdir(), "loupe-hidden.png")], peer);
-      expect(r.code).toBe(1);
-      expect(r.err).toContain("in the background");
+      if (hasChromium) {
+        expect(r.code).toBe(0);
+        expect(r.out).toContain("SVG export rendered in Chromium");
+      } else {
+        expect(r.code).toBe(1);
+        expect(r.err).toContain("in the background");
+      }
       // Snapshots don't render, so they still work.
       expect((await cli(["design", "--depth", "0"], peer)).code).toBe(0);
 
@@ -200,6 +288,50 @@ describe("hidden Figma window", () => {
       await hub.close();
     }
   });
+});
+
+describe.skipIf(!hasChromium)("Figma not rendering", () => {
+  const port = 49000 + Math.floor(Math.random() * 2000);
+  let bridge: Bridge;
+  let plugin: WebSocket;
+  let dir: string;
+
+  beforeAll(async () => {
+    process.env.LOUPE_RASTER_WAIT_MS = "300";
+    dir = await mkdtemp(path.join(tmpdir(), "loupe-stall-"));
+    bridge = new Bridge({ port });
+    await bridge.start();
+    const { f, card } = productCard();
+    plugin = await connectFakePlugin({ port, file: f, fileName: "Shop", selection: [card.id], stallRaster: true, svg: bandSvg });
+  });
+
+  afterAll(async () => {
+    delete process.env.LOUPE_RASTER_WAIT_MS;
+    plugin.close();
+    await bridge.close();
+  });
+
+  it("screenshot renders Figma's SVG export instead and says so", async () => {
+    const out = path.join(dir, "shot.png");
+    const r = await cli(["screenshot", "-o", out], bridge);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("SVG export rendered in Chromium");
+    expect((await readFile(out)).subarray(1, 4).toString()).toBe("PNG");
+  }, 60_000);
+
+  it("compare diffs against the SVG render", async () => {
+    const page = path.join(dir, "page.html");
+    await writeFile(
+      page,
+      `<!doctype html><body style="margin:0"><div id="card" style="position:relative;width:360px;height:640px;background:#fff">
+        <div style="position:absolute;left:24px;top:220px;width:312px;height:28px;background:rgb(16,24,40)"></div></div></body>`,
+    );
+    const r = await cli(["compare", "--url", pathToFileURL(page).href, "--selector", "#card"], bridge);
+    expect(r.err).toBe("");
+    expect(r.out).toContain("SVG export rendered in Chromium");
+    expect(r.out).toContain("design \"Product card\" #13:1 360×640 at 2x = 720×1280px");
+    expect(r.out).toContain("visually matching");
+  }, 60_000);
 });
 
 describe("bridge roles", () => {

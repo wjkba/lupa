@@ -12,7 +12,7 @@ import { Loupe } from "./tools/ops";
 
 export const INSTRUCTIONS = `Loupe reads Figma designs (read-only) for faithful implementation.
 
-Workflow: get_design (structure + exact styles) → get_screenshot (look at it) → export_assets (icons/images) → build → compare_screenshot with your running page (url) or a screenshot of it, fix the listed regions, repeat.
+Workflow: get_design with assets_dir and screenshot: true (structure, exact styles, icon/image files, a PNG to look at) → build → compare_screenshot with your running page (url) or a screenshot of it, fix the listed regions, repeat.
 Targets: a Figma URL, node ids ("12:34", comma-separated), or nothing = the user's current selection in Figma.
 
 ${FORMAT_LEGEND}`;
@@ -124,13 +124,32 @@ export function createServer(bridge: Bridge): McpServer {
         depth: z.number().int().min(0).optional().describe("Max levels to read below the target (default: all)."),
         include_hidden: z.boolean().optional().describe("Include hidden layers (default false)."),
         expand_vectors: z.boolean().optional().describe("Describe the shapes inside icons/illustrations instead of one svg line (default false)."),
+        assets_dir: z
+          .string()
+          .optional()
+          .describe("Also write the icons (SVG) and images to this folder; each layer then names its file in src: (saves a separate export_assets call)."),
+        current_color: z.boolean().optional().describe("With assets_dir: monochrome SVG icons use currentColor (default false)."),
+        screenshot: z.boolean().optional().describe("Also return a PNG of the target (saves a separate get_screenshot call)."),
         file: fileParam,
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ target, budget, components, depth, include_hidden, expand_vectors, file }) => {
+    async ({ target, budget, components, depth, include_hidden, expand_vectors, assets_dir, current_color, screenshot, file }) => {
       try {
-        return text(await loupe.design({ target, budget, components, depth, includeHidden: include_hidden, expandVectors: expand_vectors, file }));
+        const t = await loupe.design({
+          target,
+          budget,
+          components,
+          depth,
+          includeHidden: include_hidden,
+          expandVectors: expand_vectors,
+          assetsDir: assets_dir,
+          currentColor: current_color,
+          file,
+        });
+        if (!screenshot) return text(t);
+        const shot = await loupe.screenshot({ target, file });
+        return visual({ text: `${t}\n\n## screenshot\n${shot.text}`, images: shot.images });
       } catch (e) {
         return fail(e);
       }

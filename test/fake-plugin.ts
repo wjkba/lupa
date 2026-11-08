@@ -17,6 +17,10 @@ export interface FakePluginOptions {
   hidden?: boolean;
   /** Paint exported PNGs with this colour (to simulate a design render). */
   paint?: (x: number, y: number, w: number, h: number) => [number, number, number];
+  /** Never answer PNG exports, like Figma while its window is covered (SVG still works). */
+  stallRaster?: boolean;
+  /** Body of exported SVGs (default: a placeholder that depends on the node's paints). */
+  svg?: (w: number, h: number) => string;
 }
 
 export function solidPng(w: number, h: number, paint: (x: number, y: number) => [number, number, number]): Buffer {
@@ -96,9 +100,11 @@ async function handle(o: FakePluginOptions, method: string, params: any): Promis
         const n = f.nodes.get(id);
         if (params.format === "SVG") {
           // Same paints and size → same SVG, like Figma's export of identical drawings.
-          const svg = `<svg width="${n.width}" height="${n.height}"><path fill="#F5A524" d="M0 0h1v1z" data-paints="${paintsOf(n).join(" ")}"/></svg>`;
+          const body = o.svg?.(n.width, n.height) ?? `<path fill="#F5A524" d="M0 0h1v1z" data-paints="${paintsOf(n).join(" ")}"/>`;
+          const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${n.width}" height="${n.height}">${body}</svg>`;
           blobs.push({ id, name: n.name, format: "SVG", data: svg, encoding: "utf8", w: n.width, h: n.height });
         } else {
+          if (o.stallRaster) return new Promise(() => {});
           const scale = params.width ? params.width / n.width : params.scale ?? 2;
           const w = Math.round(n.width * scale);
           const h = Math.round(n.height * scale);

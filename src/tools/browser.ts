@@ -6,6 +6,7 @@
  */
 
 import { existsSync, readdirSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -44,7 +45,12 @@ interface PwPage {
   waitForLoadState(state: "networkidle", o: { timeout: number }): Promise<void>;
   evaluate<A>(fn: (arg: A) => unknown, arg?: A): Promise<unknown>;
   locator(sel: string): PwLocator;
-  screenshot(o: { fullPage: boolean; animations: "disabled" }): Promise<Buffer>;
+  screenshot(o: {
+    fullPage?: boolean;
+    clip?: { x: number; y: number; width: number; height: number };
+    omitBackground?: boolean;
+    animations: "disabled";
+  }): Promise<Buffer>;
 }
 interface PwBrowser {
   newPage(o: { viewport: { width: number; height: number }; deviceScaleFactor: number }): Promise<PwPage>;
@@ -169,5 +175,33 @@ export async function renderUrl(opts: RenderOptions): Promise<Rendered> {
     return { png, missingFonts };
   } finally {
     await browser.close();
+  }
+}
+
+/**
+ * Rasterize an SVG of `width`×`height` design px at `scale` device px per design px.
+ * Figma exports SVG without its renderer, so this stands in for its PNG export
+ * while Figma isn't rendering.
+ */
+export async function renderSvg(svg: string, o: { width: number; height: number; scale: number }): Promise<Buffer> {
+  const dir = path.join(os.tmpdir(), "loupe");
+  await mkdir(dir, { recursive: true });
+  const file = path.join(dir, `render-${process.pid}-${Date.now()}.svg`);
+  await writeFile(file, svg);
+  try {
+    const browser = await launch(await loadChromium());
+    try {
+      const page = await browser.newPage({
+        viewport: { width: Math.ceil(o.width), height: Math.ceil(o.height) },
+        deviceScaleFactor: o.scale,
+      });
+      await page.goto(pathToFileURL(file).href, { waitUntil: "load", timeout: 30_000 });
+      // Transparent where the design is, like Figma's PNG export.
+      return await page.screenshot({ clip: { x: 0, y: 0, width: o.width, height: o.height }, omitBackground: true, animations: "disabled" });
+    } finally {
+      await browser.close();
+    }
+  } finally {
+    await rm(file, { force: true });
   }
 }

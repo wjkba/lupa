@@ -5,7 +5,7 @@ description: Implement a Figma frame or component faithfully in code with the `l
 
 # Implementing a Figma design with Loupe
 
-`loupe` reads the live Figma file through the Loupe plugin, and it is read-only. Run `loupe status` first.
+`loupe` reads the live Figma file through the Loupe plugin, and it is read-only. If the first command fails:
 
 - **"command not found":** ask the user to run `npm link` in the Loupe folder.
 - **No file connected:** ask the user to open the file in Figma, run *Plugins → Development → Loupe*, and keep the plugin window open.
@@ -14,12 +14,12 @@ The target is a Figma URL (in quotes, because it contains `&`), node ids like `1
 
 ## 1. Read
 
-1. Run `loupe design [target]` and read the whole output before writing code. The format is described at the end of this file.
+1. Run `loupe design [target] -d <the project's asset folder> --screenshot` and read the whole output before writing code. The format is described at the end of this file.
+   - `-d` writes the icons as SVG and the images as their original files. Each `svg` and `img` layer names its file in `src:`, so use that path where the layer is. You don't need to open the files. Add `--current-color` for monochrome icons that should inherit the text colour, and follow the project's icon conventions (sprite, components).
+   - Open the `image:` file under `## screenshot` to see the intent: hierarchy, alignment, what is decorative.
    - `## tokens` lists the design tokens. Map every `$name` onto the codebase's existing tokens (Tailwind theme, CSS variables, theme object). Search the codebase for the value or the `var(--…)` name, and use raw values only when nothing matches.
    - `## components` holds the components used more than once. If the codebase already has one (Button, Input, …), use it and map its props. Otherwise build it once. `--components names` gives a smaller output when the codebase already has most of them.
-   - `… +N layers not shown → get_design #id` means part of the tree was cut. Run `loupe design <id>` before building that part. Don't guess its contents.
-2. Run `loupe screenshot [target]` and open the printed `image:` file to see the intent: hierarchy, alignment, what is decorative.
-3. Run `loupe assets [target] -d <the project's asset folder>`. It writes the icons as SVG and the images as their original files. Add `--current-color` for monochrome icons that should inherit the text colour. Follow the project's icon conventions (sprite, components).
+   - `… +N layers not shown → get_design #id` means part of the tree was cut. Run `loupe design <id> -d <same folder>` before building that part. Don't guess its contents.
 
 ## 2. Build
 
@@ -48,6 +48,8 @@ The target is a Figma URL (in quotes, because it contains `&`), node ids like `1
 - `loupe outline` lists the pages and top-level frames, for when the user names a screen but gives no link.
 - `loupe find <text>` searches layer names; add `--text` to search text content.
 - `loupe tokens --format css` dumps the file's variables and styles, to bootstrap a theme.
+- `loupe screenshot [target]` and `loupe assets [target] -d DIR` do the screenshot and the export on their own. `loupe assets --as svg|png` exports the target layers themselves.
+- `loupe status` lists the connected Figma files and their selections.
 - `loupe help` lists every option.
 
 ## Output format
@@ -60,7 +62,7 @@ get_design format — one line per layer, children indented:
   Flow (auto layout): row|col|grid, gap, rowgap, wrap, p (CSS padding shorthand, commas), justify (center|end|between), align (center|end|baseline). Children of a flow parent are positioned by the flow.
   Free position: at:x,y = CSS left/top inside the parent; abs = absolutely positioned inside a flow parent; pin:right|bottom|center-x|left+right… = constraints (how it moves when the parent resizes); rotate:<deg> (CSS sign).
   Style: bg (CSS background, topmost layer first), border:<width> [dashed(…)] <color> [outside|center] (default inside → box-sizing: border-box), radius (full = pill), smooth (corner smoothing), shadow/text-shadow (CSS), blur/backdrop (CSS blur() radius, already halved from Figma), opacity, blend, clip (overflow hidden), mask.
-  img: src:<hash> cover|contain|crop|tile → file from export_assets. svg: vector graphic → export_assets; color: its fill.
+  img: src:<hash> cover|contain|crop|tile. svg: vector graphic; color: its fill. With an assets folder (assets_dir, CLI -d), src: is the file written for that layer; otherwise export_assets writes them.
   Text: font:<token>; color; text-align; valign; ellipsis; content last as a JSON string. "~" lines under text = styled runs that differ from the base style.
   $name = design token (Figma variable/style); see "## tokens". T1, E1 = repeated typography/effect values listed there. "$name=value" = token bound but resolved to another value here (mode/override).
   Components: "## components" prints each repeated component once. "instance Name{Variant=…} Prop=value" uses it; "~ path: changes" lines list only what that instance overrides (path = layer names, or #id for unnamed layers of the definition).

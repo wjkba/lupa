@@ -31,6 +31,9 @@ Read
       --budget N          approximate output tokens (default 8000)
       --components MODE   auto | inline | names (default auto)
       --depth N  --hidden  --vectors
+      -d DIR              also write the icons and images there; layers name their file
+      --current-color     with -d: monochrome icons use currentColor
+      --screenshot        also render a PNG of the target and print its path
   screenshot [target]   Render to PNG(s) sized for vision; prints the file paths
       -o PATH  --scale N  --full PATH (also save the full-resolution PNG)
   assets [target]       Write the icons (SVG) and images to a folder
@@ -63,7 +66,16 @@ type Values = Record<string, string | boolean | string[] | undefined>;
 const GLOBAL: OptionSpec = { file: { type: "string" }, port: { type: "string" }, help: { type: "boolean", short: "h" } };
 
 const SPECS: Record<string, OptionSpec> = {
-  design: { budget: { type: "string" }, components: { type: "string" }, depth: { type: "string" }, hidden: { type: "boolean" }, vectors: { type: "boolean" } },
+  design: {
+    budget: { type: "string" },
+    components: { type: "string" },
+    depth: { type: "string" },
+    hidden: { type: "boolean" },
+    vectors: { type: "boolean" },
+    dir: { type: "string", short: "d" },
+    "current-color": { type: "boolean" },
+    screenshot: { type: "boolean" },
+  },
   screenshot: { out: { type: "string", short: "o" }, scale: { type: "string" }, full: { type: "string" } },
   assets: { dir: { type: "string", short: "d" }, as: { type: "string" }, scale: { type: "string" }, "current-color": { type: "boolean" } },
   tokens: { format: { type: "string" }, filter: { type: "string" } },
@@ -129,8 +141,8 @@ async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise
   switch (cmd) {
     case "status":
       return loupe.status();
-    case "design":
-      return loupe.design({
+    case "design": {
+      const text = await loupe.design({
         target,
         file,
         budget: num(v, "budget", 500, 100_000),
@@ -138,7 +150,12 @@ async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise
         depth: num(v, "depth", 0, 1000),
         includeHidden: v.hidden === true,
         expandVectors: v.vectors === true,
+        assetsDir: str(v, "dir"),
+        currentColor: v["current-color"] === true,
       });
+      if (v.screenshot !== true) return text;
+      return `${text}\n\n## screenshot\n${deliver(await loupe.screenshot({ target, file }), undefined, "screenshot")}`;
+    }
     case "screenshot":
       return deliver(await loupe.screenshot({ target, file, scale: num(v, "scale", 0.1, 4), saveTo: str(v, "full") }), str(v, "out"), "screenshot");
     case "assets":

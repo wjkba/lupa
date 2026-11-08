@@ -205,6 +205,7 @@ export async function handleExport(params: ExportParams): Promise<{ blobs: Expor
           svgOutlineText: params.svgOutlineText ?? true,
           svgIdAttribute: false,
           svgSimplifyStroke: true,
+          ...(params.exactBounds ? { useAbsoluteBounds: true } : {}),
         });
         blobs.push({ id, name: node.name, format: "SVG", data: svg, encoding: "utf8", w: r2(w), h: r2(h) });
       } else {

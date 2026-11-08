@@ -2,16 +2,68 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Bridge } from "../bridge/hub";
+import { HIDDEN_ERROR, RequestTimeout, type Bridge } from "../bridge/hub";
 import { isDefaultName, slug } from "../model/build";
 import { n } from "../model/css";
 import type { RawNode, RawSnapshot } from "../shared/raw";
+import { renderSvg } from "./browser";
 import { crop, decodePng, diff, encodePng, flatten, isDiffPixel, resize, sideBySide, tiles, VISION_MAX_EDGE, type Raster } from "../image/png";
 
 /** Text for the agent plus PNG images (vision-sized). */
 export interface Visual {
   text: string;
   images: Buffer[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Rendering a node                                                    */
+/* ------------------------------------------------------------------ */
+
+/** How long a PNG export may take before Loupe treats Figma's renderer as stopped. */
+function rasterWaitMs(): number {
+  return Number(process.env.LOUPE_RASTER_WAIT_MS) || 10_000;
+}
+
+export const SVG_FALLBACK_NOTE =
+  "Figma didn't render a PNG (its window is hidden or covered), so this image is Figma's SVG export rendered in Chromium. SVG export can leave out background blur, newer effects and occasionally a stroke: check a region against `loupe design` before changing it. Bring Figma to the front for an exact render.";
+
+/** Per command: once Figma's renderer has stalled, later nodes skip the PNG wait. */
+interface RenderState {
+  stalled?: boolean;
+}
+
+/**
+ * PNG of a node at `scale` device px per design px (or exactly `width` px wide).
+ * Figma renders PNGs only while its window is drawn; when it doesn't answer, the
+ * node's SVG export (which needs no renderer) is rasterized in Chromium instead.
+ */
+async function renderNode(
+  bridge: Bridge,
+  node: { id: string; w: number; h: number },
+  file: string | undefined,
+  size: { scale: number; width?: number },
+  state: RenderState,
+): Promise<{ png: Buffer; fromSvg: boolean } | { error: string }> {
+  if (bridge.pick(file).hidden) state.stalled = true;
+  if (!state.stalled) {
+    try {
+      const fit = size.width ? { width: size.width } : { scale: size.scale };
+      const res = await bridge.request("export", { ids: [node.id], format: "PNG", ...fit, exactBounds: true }, file, { timeoutMs: rasterWaitMs() });
+      if (!res.blobs.length) return { error: res.errors[0]?.error ?? "export failed" };
+      return { png: Buffer.from(res.blobs[0]!.data, "base64"), fromSvg: false };
+    } catch (e) {
+      if (!(e instanceof RequestTimeout) && (e as Error).message !== HIDDEN_ERROR) throw e;
+      state.stalled = true;
+    }
+  }
+  const res = await bridge.request("export", { ids: [node.id], format: "SVG", exactBounds: true }, file);
+  if (!res.blobs.length) return { error: res.errors[0]?.error ?? "export failed" };
+  const scale = size.width ? size.width / node.w : size.scale;
+  try {
+    return { png: await renderSvg(res.blobs[0]!.data, { width: node.w, height: node.h, scale }), fromSvg: true };
+  } catch (e) {
+    throw new Error(`${HIDDEN_ERROR}\n(Loupe can render Figma's SVG export instead, but that needs Chromium: ${(e as Error).message})`);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -27,15 +79,16 @@ export async function screenshot(
   const head = await bridge.request("snapshot", { ids, depth: 0, components: false }, file);
   const lines: string[] = [];
   const images: Buffer[] = [];
+  const state: RenderState = {};
   for (const root of head.roots) {
     // Retina by default, but never wider than the model can see without downscaling.
     const scale = opts.scale ?? Math.max(0.1, Math.min(2, VISION_MAX_EDGE / Math.max(root.w, 1)));
-    const res = await bridge.request("export", { ids: [root.id], format: "PNG", scale, exactBounds: true }, file);
-    if (res.errors.length) {
-      lines.push(`#${root.id}: ${res.errors[0]!.error}`);
+    const res = await renderNode(bridge, root, file, { scale }, state);
+    if ("error" in res) {
+      lines.push(`#${root.id}: ${res.error}`);
       continue;
     }
-    const buf = Buffer.from(res.blobs[0]!.data, "base64");
+    const buf = res.png;
     const raster = decodePng(buf);
     if (opts.saveTo) {
       const target = ids.length > 1 || head.roots.length > 1 ? withSuffix(opts.saveTo, slug(root.name) || root.id) : opts.saveTo;
@@ -52,6 +105,7 @@ export async function screenshot(
     for (const p of parts) images.push(encodePng(p.tile));
   }
   if (head.missing.length) lines.push(`not found: ${head.missing.join(", ")}`);
+  if (state.stalled) lines.push(`note: ${SVG_FALLBACK_NOTE}`);
   return { text: lines.join("\n"), images };
 }
 
@@ -69,7 +123,8 @@ interface GraphicAsset {
   name: string;
   /** File name stem: the layer's own name, or its nearest meaningfully named ancestor's. */
   base: string;
-  uses: number;
+  /** Main component of an instance. Its other instances aren't listed by id when they draw the same SVG. */
+  component?: string;
 }
 
 interface ImageAsset {
@@ -84,19 +139,19 @@ interface ImageAsset {
 const VAGUE_NAME = /^(container|wrapper|content|inner|box|div|layer)(\s+\d+)?$/i;
 const meaningful = (name: string) => !!name.trim() && !isDefaultName(name) && !VAGUE_NAME.test(name.trim());
 
-function collect(snap: RawSnapshot): { graphics: Map<string, GraphicAsset>; images: Map<string, ImageAsset> } {
-  const graphics = new Map<string, GraphicAsset>();
+function collect(snap: RawSnapshot, defs: string[] = []): { graphics: GraphicAsset[]; images: Map<string, ImageAsset> } {
+  const graphics: GraphicAsset[] = [];
   const images = new Map<string, ImageAsset>();
+  const seen = new Set<string>();
   const walk = (node: RawNode, context: string | undefined) => {
-    if (node.stub) return;
+    if (node.stub || seen.has(node.id)) return;
+    seen.add(node.id);
     const base = (name: string) => (meaningful(name) ? name : (context ?? name));
     if (node.graphic) {
+      // Every layer is exported: instances of one component can differ (a swapped nested icon, overridden fills).
       const c = node.mainComponentId ? snap.components[node.mainComponentId] : undefined;
-      const key = c ? `c:${c.id}` : `n:${node.id}`;
       const name = c ? (c.setName ? `${c.setName} ${Object.values(c.variant ?? {}).join(" ")}` : c.name) : node.name;
-      const g = graphics.get(key);
-      if (g) g.uses++;
-      else graphics.set(key, { nodeId: node.id, name, base: base(name), uses: 1 });
+      graphics.push({ nodeId: node.id, name, base: base(name), component: c?.id });
       return;
     }
     for (const p of node.fills ?? []) {
@@ -109,6 +164,10 @@ function collect(snap: RawSnapshot): { graphics: Map<string, GraphicAsset>; imag
     node.children?.forEach((c) => walk(c, inner));
   };
   snap.roots.forEach((r) => walk(r, undefined));
+  for (const id of defs) {
+    const tree = snap.components[id]?.tree;
+    if (tree) walk(tree, undefined);
+  }
   return { graphics, images };
 }
 
@@ -128,26 +187,30 @@ export function toCurrentColor(svg: string): string {
   return svg.replace(new RegExp(`(fill|stroke)="${c!.replace("#", "\\#")}"`, "gi"), '$1="currentColor"');
 }
 
-export async function exportAssets(
-  bridge: Bridge,
-  ids: string[],
-  file: string | undefined,
-  opts: { dir: string; as: "auto" | "svg" | "png"; scale?: number; currentColor?: boolean },
-): Promise<string> {
-  const dir = path.resolve(opts.dir);
-  await mkdir(dir, { recursive: true });
+/** File names from layer names, unique within one export. */
+function fileNamer(): (base: string, ext: string) => string {
   const taken = new Set<string>();
-  const fileName = (base: string, ext: string) => {
+  return (base, ext) => {
     const stem = slug(base) || "asset";
     let name = `${stem}.${ext}`;
     for (let i = 2; taken.has(name); i++) name = `${stem}-${i}.${ext}`;
     taken.add(name);
     return name;
   };
-  const lines: string[] = [];
+}
 
+export async function exportAssets(
+  bridge: Bridge,
+  ids: string[],
+  file: string | undefined,
+  opts: { dir: string; as: "auto" | "svg" | "png"; scale?: number; currentColor?: boolean },
+): Promise<string> {
   if (opts.as !== "auto") {
     // Export the given layers themselves.
+    const dir = path.resolve(opts.dir);
+    await mkdir(dir, { recursive: true });
+    const fileName = fileNamer();
+    const lines: string[] = [];
     const fmt = opts.as === "svg" ? "SVG" : "PNG";
     const res = await bridge.request("export", { ids, format: fmt, scale: opts.scale ?? 2 }, file);
     for (const b of res.blobs) {
@@ -161,34 +224,73 @@ export async function exportAssets(
   }
 
   const snap = await bridge.request("snapshot", { ids, components: false, maxNodes: 50000 }, file);
-  const { graphics, images } = collect(snap);
-  if (!graphics.size && !images.size) {
+  const res = await writeAssets(bridge, snap, file, { dir: opts.dir, currentColor: opts.currentColor });
+  if (!res.byNode.size && !res.byImage.size && !res.failures.length) {
     return `No vector graphics or image fills under ${ids.join(", ")}. To export the layers themselves, call again with as:"png" or as:"svg".`;
   }
+  return res.report;
+}
+
+export interface WrittenAssets {
+  /** One `file ← layer` line per file written, as `loupe assets` prints them. */
+  report: string;
+  /** The report's "failed …" lines. */
+  failures: string[];
+  /** File path (under the folder as the caller named it) for each graphic layer id… */
+  byNode: Map<string, string>;
+  /** …and for each image hash. */
+  byImage: Map<string, string>;
+}
+
+/**
+ * Write the icons (one SVG per distinct drawing) and image fills in a snapshot to `dir`.
+ * `defs` adds the graphics inside those component definitions (the ones the design output prints).
+ */
+export async function writeAssets(
+  bridge: Bridge,
+  snap: RawSnapshot,
+  file: string | undefined,
+  opts: { dir: string; currentColor?: boolean; defs?: string[] },
+): Promise<WrittenAssets> {
+  const dir = path.resolve(opts.dir);
+  await mkdir(dir, { recursive: true });
+  const fileName = fileNamer();
+  // Paths as the caller named the folder: relative stays relative, absolute stays absolute.
+  const rel = (name: string) => path.join(opts.dir, name).split(path.sep).join("/");
+  const lines: string[] = [];
+  const failures: string[] = [];
+  const fail = (line: string) => {
+    failures.push(line);
+    lines.push(line);
+  };
+  const byNode = new Map<string, string>();
+  const byImage = new Map<string, string>();
+  const { graphics, images } = collect(snap, opts.defs);
 
   // Different layers often draw the same icon: write each distinct SVG once.
-  const written = new Map<string, { line: number; uses: number; also: string[] }>();
-  const gl = [...graphics.values()];
-  for (let i = 0; i < gl.length; i += 40) {
-    const batch = gl.slice(i, i + 40);
+  const written = new Map<string, { name: string; line: number; uses: number; component?: string; also: string[] }>();
+  for (let i = 0; i < graphics.length; i += 40) {
+    const batch = graphics.slice(i, i + 40);
     const res = await bridge.request("export", { ids: batch.map((g) => g.nodeId), format: "SVG" }, file);
     const byId = new Map(res.blobs.map((b) => [b.id, b]));
     for (const g of batch) {
       const b = byId.get(g.nodeId);
       if (!b) {
-        lines.push(`failed svg "${g.name}" #${g.nodeId}: ${res.errors.find((e) => e.id === g.nodeId)?.error ?? "no data"}`);
+        fail(`failed svg "${g.name}" #${g.nodeId}: ${res.errors.find((e) => e.id === g.nodeId)?.error ?? "no data"}`);
         continue;
       }
       const svg = opts.currentColor ? toCurrentColor(b.data) : b.data;
       const same = written.get(svg);
       if (same) {
-        same.uses += g.uses;
-        same.also.push(`#${g.nodeId}`);
+        same.uses++;
+        if (!g.component || g.component !== same.component) same.also.push(`#${g.nodeId}`);
+        byNode.set(g.nodeId, rel(same.name));
         continue;
       }
       const name = fileName(g.base, "svg");
       await writeFile(path.join(dir, name), svg);
-      written.set(svg, { line: lines.length, uses: g.uses, also: [] });
+      written.set(svg, { name, line: lines.length, uses: 1, component: g.component, also: [] });
+      byNode.set(g.nodeId, rel(name));
       lines.push(`${name} ← svg "${g.name}" #${g.nodeId} ${n(b.w)}×${n(b.h)}`);
     }
   }
@@ -206,16 +308,18 @@ export async function exportAssets(
     for (const img of batch) {
       const got = byHash.get(img.hash);
       if (!got) {
-        lines.push(`failed image ${img.hash.slice(0, 10)} ("${img.name}"): ${res.errors.find((e) => e.hash === img.hash)?.error ?? "no data"}`);
+        fail(`failed image ${img.hash.slice(0, 10)} ("${img.name}"): ${res.errors.find((e) => e.hash === img.hash)?.error ?? "no data"}`);
         continue;
       }
       const buf = Buffer.from(got.data, "base64");
       const name = fileName(img.base, imageExt(buf));
       await writeFile(path.join(dir, name), buf);
+      byImage.set(img.hash, rel(name));
       lines.push(`${name} ← src:${img.hash.slice(0, 10)} "${img.name}" #${img.nodeId}${got.w ? ` ${got.w}×${got.h}px original` : ""}${img.uses > 1 ? ` (used ${img.uses}×)` : ""}`);
     }
   }
-  return [`Wrote ${lines.filter((l) => !l.startsWith("failed")).length} file(s) to ${dir}`, ...lines].join("\n");
+  const report = [`Wrote ${written.size + byImage.size} file(s) to ${dir}`, ...lines].join("\n");
+  return { report, failures, byNode, byImage };
 }
 
 /* ------------------------------------------------------------------ */
@@ -291,14 +395,15 @@ export async function compare(
 ): Promise<Visual> {
   const actualBuf = typeof opts.image === "string" ? await readFile(opts.image) : opts.image;
   const actual = flatten(decodePng(actualBuf));
-  const res = await bridge.request("export", { ids: [root.id], format: "PNG", width: actual.width, exactBounds: true }, file);
-  if (!res.blobs.length) throw new Error(res.errors[0]?.error ?? "export failed");
-  let design = flatten(decodePng(Buffer.from(res.blobs[0]!.data, "base64")));
+  const scale = actual.width / root.w;
+  const res = await renderNode(bridge, root, file, { scale, width: actual.width }, {});
+  if ("error" in res) throw new Error(res.error);
+  let design = flatten(decodePng(res.png));
   if (design.width !== actual.width) design = resize(design, actual.width, (design.height * actual.width) / design.width);
 
-  const scale = actual.width / root.w;
   const lines: string[] = [];
   lines.push(`design "${root.name}" #${root.id} ${n(root.w)}×${n(root.h)} at ${n(scale)}x = ${design.width}×${design.height}px; implementation ${actual.width}×${actual.height}px`);
+  if (res.fromSvg) lines.push(`  note: ${SVG_FALLBACK_NOTE}`);
   const h = Math.min(design.height, actual.height);
   if (Math.abs(design.height - actual.height) > 1) {
     const dh = (actual.height - design.height) / scale;
