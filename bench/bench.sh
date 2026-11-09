@@ -63,6 +63,6 @@ Score (Loupe plugin open on the file, Figma visible):
   $B/score.sh "$URL" $OUT/$SCREEN-*-*
 Table only (after scoring):
   python3 $B/analyze.py --table $OUT/$SCREEN-*-*
-Keep the results in the repo:
-  mkdir -p $B/results/$(date +%F)-$SCREEN && python3 $B/analyze.py $OUT/$SCREEN-*-* > $B/results/$(date +%F)-$SCREEN/metrics.jsonl
+Metrics as JSON lines (keep them out of the repo: runs contain the design):
+  python3 $B/analyze.py $OUT/$SCREEN-*-* > $OUT/$SCREEN-metrics.jsonl
 EOF

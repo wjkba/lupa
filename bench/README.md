@@ -1,65 +1,79 @@
-# Benchmark: Loupe vs other Figma tools
+# Benchmark
 
-These scripts have an agent (`claude -p`) implement one Figma frame with exactly one Figma tool, then score each result against the design. The results so far are summarized in [`results/README.md`](results/README.md).
+An agent (Claude Opus 5.5 through `claude -p`) builds one Figma frame as static HTML and CSS, reading the design with exactly one Figma tool. The result is then scored against Figma.
 
-## Configs
+## Results
 
-| Config | Figma tool the agent can use |
-|---|---|
-| `official` | Official Figma MCP (Claude plugin `figma@claude-plugins-official`), read tools only |
-| `framelink` | Framelink MCP (`get_figma_data`, `download_figma_images`) |
-| `figwright` | figwright MCP, the 36 read-only tools listed in `figwright-tools.txt`, through `figwright.json` |
-| `loupe-read` | `loupe` CLI and the `figma-implement` skill, with `loupe compare` denied |
-| `loupe-full` | `loupe` CLI and the skill, including `compare` |
+**Card grid:** a header, a title row with a dropdown and icon buttons, and a grid of cards from one component in three variants. Mean of 3 runs, min–max where the runs differ.
 
-Each run is isolated:
-- `--permission-mode dontAsk` with an allow-list, so the agent only gets read-only Figma tools.
-- Every other Figma tool and skill is denied.
-- The official plugin is disabled outside the `official` config.
-- `ENABLE_CLAUDEAI_MCP_SERVERS=false`, otherwise Claude Code hides the plugin's server as a duplicate of the claude.ai Figma connector.
-- `disableAllHooks`, so the user's own hooks stay out of the run. A hook that rewrites commands, such as `rtk` turning `curl` into `rtk curl`, makes them miss the allow-list.
+| | Loupe | Official Figma MCP | Framelink | figwright |
+|---|---|---|---|---|
+| Pixel mismatch | **0.40%** | 0.42% | 2.12% (0.41–3.86%) | 0.41% |
+| Text layers within 1 px vertically | **100%** | 100% | 66% (15–100%) | 100% |
+| Cost | **$0.55** | $1.13 | $0.58 | $1.20 |
+| Context added | **28k** | 63k | 30k | 82k |
+| Text returned by Figma tools | **28k chars** | 80k | 29k | 110k |
+| Turns | **10** | 25 | **10** | 24 |
+| Wall time | **96 s** | 158 s | 106 s | 110 s |
 
-## Running
+**Table page:** navigation, tabs and a table. One run per tool.
 
-1. **Prerequisites:**
-   - The `claude` CLI is logged in.
-   - Framelink is set up in your Claude config (with its token).
-   - The official Figma plugin is installed and authenticated.
-   - `loupe` is linked (`npm link` in the repo).
-   - The figma-implement skill is copied to `~/.claude/skills/`.
-   - Chromium is available for Playwright, which `compare` already needs.
-2. **Run configs × reps on one screen:**
-   ```sh
-   bench/bench.sh <screen> "<figma url>" <reps> official framelink loupe-read loupe-full
-   bench/bench.sh <screen> "<figma url>" <reps> figwright      # after switching the plugin to figwright
-   ```
-   - Runs go to `$BENCH_OUT` (default `/tmp/loupe-bench`) as `<screen>-<config>-<rep>`, outside the repo so the agent can't read Loupe's code.
-   - Keep that path short and plain. Agents misread paths under Claude Code's scratchpad, which contain another path with `/` replaced by `-`.
-   - Successful runs are skipped, so running the same command again redoes only failed ones.
-   - When a run hits the account's usage limit, no new runs start. The script prints when the limit resets; run the same command after that.
-   - Non-Loupe configs run in parallel; Loupe configs run one after another because they share the plugin.
-   - Figma runs one plugin at a time per file, so `figwright` can't share an invocation with `loupe-*`. The official server and Framelink don't use a plugin.
-   - Keep Figma's window visible while Loupe configs run, or its raster exports stall.
-   - `MODEL` (default `claude-opus-5-5`) and `BUDGET` (USD per run, default 10) pass through. `bench/run.sh <config> <dir> "<url>"` runs a single one.
-3. **Score the runs** with the Loupe plugin open and Figma visible:
-   ```sh
-   bench/score.sh "<figma url or node id>" /tmp/loupe-bench/<screen>-*-*
-   ```
-   For each run this writes:
-   - `compare.txt` and `compare.png`: the pixel diff from `loupe compare`;
-   - `score-text.json`: the structural score below.
+| | Loupe¹ | Official Figma MCP | Framelink | figwright |
+|---|---|---|---|---|
+| Pixel mismatch | 1.08% | **1.04%** | 1.06% | 1.23% |
+| Text layers within 1 px vertically | **100%** | **100%** | **100%** | 33% |
+| Cost | **$0.56** | $1.29 | $0.73 | $1.20 |
+| Context added | **23k** | 62k | 26k | 70k |
+| Turns | 18 | 18 | **9** | 18 |
 
-   It then prints a table with every metric, reps grouped as mean (min–max). The table alone is `python3 bench/analyze.py --table <runs…>`, and JSON per run is `python3 bench/analyze.py <runs…>`.
+¹ This run predates `loupe design -d … --screenshot`. That single call cut Loupe's card-grid runs from 17–18 turns to 10.
 
-## Metrics
+**What this shows:**
+- **Quality.** On the card grid, Loupe, the official MCP and figwright produce the same result. Framelink's layout drifted in 2 of 3 runs. In the worst one each card row came out about 1.5 px too tall, so the last row was 6 px off. On the table page, figwright placed two thirds of the text at the wrong height.
+- **Consistency.** All 6 card-grid runs of the current Loupe version rendered pixel-identically.
+- **Cost and context.** Loupe costs about the same as Framelink, and half as much as the official MCP or figwright.
+  - The official MCP returns generated React and Tailwind, up to 93k characters in a single call.
+  - figwright's node tree went over its own result limit, so it took 8–15 calls.
+- **Read-only.** The agent using the official MCP tried its write tools (`create_session`, `use_figma`) in every run. Only the benchmark's allow-list stopped them. Loupe has no write operations.
+- **Visual check.** Agents with `loupe compare` compared once, saw a match and stopped. With `compare` denied, Loupe scored the same.
 
-- **Pixel mismatch** comes from `loupe compare` at 2x, split into pixels inside and outside text layers. When the design's fonts aren't installed, the text part mostly measures the fallback font.
-- **Structural score** comes from `score-text.mjs` and is mostly independent of fonts.
-  - Matching: every visible Figma text layer is matched to page text by content. A match can be a text node, consecutive styled spans, or a substring.
-  - Position: compared at the layer's alignment anchor. x is the left, centre or right edge; y is the centre of the first line, where CSS and Figma both centre glyphs.
-  - Reported: % matched, median and p90 error, % within 1 px and 4 px (with y on its own), and exact font size, weight, colour and line height.
-  - Caveats: x still moves when a fallback font changes the width of text earlier in a hug row. y is the cleaner signal for layout. Text drawn as vectors in Figma isn't counted. Neither are text layers whose content the implementation changed; they show up as unmatched.
-  - Caching: the Figma side is cached as `figma-<node>.json` next to the runs (`bench/snapshot.mts`), so re-scoring doesn't need Figma.
-- **Cost, turns, context added** (peak context minus the first request's, so Claude Code's own ~36–41k is excluded), **Figma text** (characters returned by Figma tools), **wall time** and **Figma errors** (failed Figma tool calls, such as export timeouts) all come from the transcript.
+## Method
 
-To list an MCP server's tools and their read-only annotations, run `node bench/listtools.mjs <command> <args…>`. For example, `node bench/listtools.mjs npx -y @figwright/mcp@latest` lists figwright's tools.
+| Config | Figma tool | Version |
+|---|---|---|
+| `loupe-full` | `loupe` CLI and the `figma-implement` skill. These are the Loupe results above. | 0.2.0+ |
+| `loupe-read` | The same, with `loupe compare` denied | 0.2.0+ |
+| `official` | Official Figma MCP (Claude plugin `figma@claude-plugins-official`), read tools only | remote |
+| `framelink` | Framelink `figma-developer-mcp` (REST API, personal access token) | 0.13.2 |
+| `figwright` | `@figwright/mcp` with its plugin, the 36 read-only tools in `figwright-tools.txt` | 0.7.0 |
+
+- **Isolation.** Each run starts in an empty directory with `--permission-mode dontAsk`. An allow-list admits only read-only Figma tools, and every other Figma tool and skill is denied. User hooks are disabled with `disableAllHooks`.
+- **Pixel mismatch** comes from `loupe compare` at 2×.
+- **Text placement** comes from [`score-text.mjs`](score-text.mjs). It matches every visible Figma text layer to page text and compares the vertical position of its first line.
+- **Context added** is peak context minus the first request's, so Claude Code's own 36–41k tokens aren't counted. Cost, turns and time come from the transcript ([`analyze.py`](analyze.py)).
+- **Caveats.**
+  - There were 1–3 runs per tool.
+  - The judge is Loupe's own `compare`, though it is a plain pixel diff.
+  - Loupe's card-grid runs are a day newer than the other tools' runs.
+
+## Running it
+
+You need:
+- a logged-in `claude` CLI;
+- Framelink configured with its token;
+- the official Figma plugin authenticated;
+- `loupe` linked, with the figma-implement skill in `~/.claude/skills/`;
+- Chromium for Playwright.
+
+```sh
+bench/bench.sh <name> "<figma url>" <reps> official framelink loupe-read loupe-full
+bench/bench.sh <name> "<figma url>" <reps> figwright       # with the figwright plugin open instead of Loupe
+bench/score.sh "<figma url>" /tmp/loupe-bench/<name>-*-*   # with the Loupe plugin open and Figma visible
+```
+
+- **Where runs go.** Runs go to `$BENCH_OUT` (default `/tmp/loupe-bench`), outside the repo, so agents can't read Loupe's code. Don't commit them: they contain the design.
+- **Re-running.** Running the same command again redoes only the failed runs. At the account's usage limit, no new runs start and the script prints when to retry.
+- **Order.** Loupe configs run one after another because they share the plugin. Keep Figma's window visible, or its PNG exports stall.
+- **Options.** `MODEL` (default `claude-opus-5-5`) and `BUDGET` (USD per run, default 10) pass through. `bench/run.sh <config> <dir> "<url>"` runs a single config.
+- **Scoring output.** `score.sh` writes `compare.txt`, `compare.png` and `score-text.json` into each run and prints the table. To print it again, run `python3 bench/analyze.py --table <runs…>`. Without `--table`, `analyze.py` prints JSON per run.
+- **Tool lists.** `node bench/listtools.mjs <command> <args…>` lists an MCP server's tools with their read-only annotations.

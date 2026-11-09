@@ -2,6 +2,19 @@
 
 Researched in November 2026. This covers what exists for reading Figma designs into a coding agent, what plumb (the starting point of this repo) does well and badly, and why Loupe is built the way it is.
 
+## At a glance
+
+| | Loupe | Official Figma MCP | Framelink (Figma-Context-MCP) | plumb |
+|---|---|---|---|---|
+| Interface | CLI + Claude Code skill (MCP optional) | MCP | MCP | MCP |
+| Source | Plugin API (live file) | Dev Mode MCP | REST API | Plugin API |
+| Needs | Any seat that can run a dev plugin | Dev/Full seat; rate limits on lower tiers | Personal access token; REST rate limits | Plugin |
+| Output | Indented CSS-vocabulary tree + token table | Generated React + Tailwind, plus XML metadata | Simplified YAML/JSON | JSON node map + token table |
+| Components | Defined once, instances as overrides diffed by layer id | Code Connect mapping | Component ids | Component name only |
+| Big frames | Breadth-first token budget with expand markers; repeat folding | Large outputs on big frames | Whole tree | Depth + node cap |
+| Visual check | Screenshot tiles for vision + pixel diff of your page, mapped to layers | Screenshot | Image download | Screenshot |
+| Writes to Figma | Never | No | No | Yes (has write tools) |
+
 ## Existing tools
 
 | Tool | How it reads | What the agent gets | Notes |
@@ -54,4 +67,4 @@ Verdict: the direction (plugin data → server-side normalization → compact te
 | Synthetic 300-row table (3,903 nodes) | 1.83M chars plugin JSON | 1,261 tokens in 60 ms (zebra rows folded, each row's content listed) |
 | Real desktop screen (header, tabs, 8-row table, 6 components) | — | 10.6k chars (≈3.3k tokens) in one call, no cuts |
 
-On that real screen, a page written only from Loupe's output matched Figma at 1.1% pixel mismatch.
+How agents do with Loupe against the other tools, end to end: [bench/README.md](../bench/README.md).
