@@ -14,10 +14,11 @@ The target is a Figma URL (in quotes, because it contains `&`), node ids like `1
 
 ## 1. Read
 
-1. Run `lupa design [target] -d <the project's asset folder> --screenshot` and read the whole output before writing code. The format is described at the end of this file.
+1. Find the project's styling before reading the design: the Tailwind config or CSS `@theme`, `:root` custom properties, SCSS/Less variables, a theme object (styled-components, MUI, Chakra…) or a tokens file. Note its colour tokens and their values. If the project has none, skip the colour lookups below.
+2. Run `lupa design [target] -d <the project's asset folder> --screenshot` and read the whole output before writing code. The format is described at the end of this file.
    - `-d` writes the icons as SVG and the images as their original files. Each `svg` and `img` layer names its file in `src:`, so use that path where the layer is. You don't need to open the files. Add `--current-color` for monochrome icons that should inherit the text colour, and follow the project's icon conventions (sprite, components).
    - Open the `image:` file under `## screenshot` to see the intent: hierarchy, alignment, what is decorative.
-   - `## tokens` lists the design tokens. Map every `$name` onto the codebase's existing tokens (Tailwind theme, CSS variables, theme object). Search the codebase for the value or the `var(--…)` name, and use raw values only when nothing matches.
+   - `## tokens` lists the design tokens. Map every `$name` onto the project tokens you found in step 1, by its `var(--…)` name or its value. Raw colours in the tree (`#hex`, `rgba()`) get the same lookup; see **Colours** below.
    - `## components` holds the components used more than once. If the codebase already has one (Button, Input, …), use it and map its props. Otherwise build it once. `--components names` gives a smaller output when the codebase already has most of them.
    - `… +N layers not shown → get_design #id` means part of the tree was cut. Run `lupa design <id> -d <same folder>` before building that part. Don't guess its contents.
 
@@ -29,7 +30,8 @@ The target is a Figma URL (in quotes, because it contains `&`), node ids like `1
   - `fill` → `flex: 1` or `align-self: stretch` on that axis; `hug` → auto size.
   - A size without `fill` or `hug` is fixed. On responsive containers, prefer the fill/hug behaviour over hard-coding the frame width.
 - **Positioning:** `abs; at:x,y; pin:…` → `position: absolute` with `left`/`top`, or `right`/`bottom` when `pin` says so.
-- **Values:** `bg:`, `shadow:`, `blur:` and `border:` are already CSS. Copy them as they are.
+- **Colours:** for every colour in `bg:`, `border:`, `color:` and `shadow:`, whether a `$token` or a raw `#hex`/`rgba()`, use the project token with the same name or the same value (compare values case-insensitively and across hex/rgb notation; `@0.5` is that token at 50% opacity, e.g. `bg-primary/50`). Write a literal colour only when no token matches. Don't substitute a token whose value is merely close; list those near misses in your summary instead. If a Figma token's name matches a project token but the values differ, use the project token and mention the difference.
+- **Values:** `bg:`, `shadow:`, `blur:` and `border:` are already CSS. Copy them as they are, with colours swapped for tokens as above.
 - **Typography:** `font:` is a typography token. Use the project's matching text style and keep its exact line-height and letter-spacing.
 - **Text runs:** `~ "run"` lines under a text are inline spans (links, bold words) inside that text.
 - **Notes:** `// note:` and `// on click → …` come from the designer (annotations, prototype interactions, dev status). Follow them.
@@ -41,7 +43,8 @@ The target is a Figma URL (in quotes, because it contains `&`), node ids like `1
 2. Run `lupa compare [target] --url <page url> --selector <css selector of the element>`. Lupa renders the page at the design's width and prints the mismatch % and the differing regions, each named by its Figma layer. It also writes a design | implementation | diff image. Open that image.
    - If the page can't be rendered here, take a PNG screenshot of the element and pass `--image <png>` instead.
 3. Fix the named layers. Compare against that layer's line in `lupa design`, not by eye. Repeat until the remaining mismatch is font anti-aliasing or intended (dynamic data, a responsive width).
-4. When the design itself is unclear, `lupa css <id>` shows Figma's own Dev Mode CSS as a cross-check.
+4. Search your changes for literal colours (`#`, `rgb(`, `hsl(`, arbitrary Tailwind values like `bg-[#…]`). Each one left must have no matching project token.
+5. When the design itself is unclear, `lupa css <id>` shows Figma's own Dev Mode CSS as a cross-check.
 
 ## Other commands
 
@@ -69,5 +72,5 @@ get_design format — one line per layer, children indented:
   "+N more like ↑" / "+N more alternating like the 2 above" = siblings with the same structure as the layer(s) just printed; the lines under it give each one's id and its own texts/images.
   "… +N layers not shown → get_design #id" = cut by the token budget; fetch that subtree when you need it.
   // lines = designer notes, prototype interactions, component props, exports.
-Reproduce exact values (sizes, spacing, colours, type). Map $tokens to the codebase's existing tokens/variables when they exist.
+Reproduce exact values (sizes, spacing, colours, type). Before writing any colour, $token or raw (#hex, rgba), look for the codebase's own token with that name or value (Tailwind theme, CSS variables, theme object) and use it; hardcode only when none matches.
 ```

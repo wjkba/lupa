@@ -17,4 +17,4 @@ export const FORMAT_LEGEND = `get_design format — one line per layer, children
   "+N more like ↑" / "+N more alternating like the 2 above" = siblings with the same structure as the layer(s) just printed; the lines under it give each one's id and its own texts/images.
   "… +N layers not shown → get_design #id" = cut by the token budget; fetch that subtree when you need it.
   // lines = designer notes, prototype interactions, component props, exports.
-Reproduce exact values (sizes, spacing, colours, type). Map $tokens to the codebase's existing tokens/variables when they exist.`;
+Reproduce exact values (sizes, spacing, colours, type). Before writing any colour, $token or raw (#hex, rgba), look for the codebase's own token with that name or value (Tailwind theme, CSS variables, theme object) and use it; hardcode only when none matches.`;
