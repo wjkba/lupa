@@ -19,13 +19,13 @@ export interface Visual {
 /* Rendering a node                                                    */
 /* ------------------------------------------------------------------ */
 
-/** How long a PNG export may take before Loupe treats Figma's renderer as stopped. */
+/** How long a PNG export may take before Lupa treats Figma's renderer as stopped. */
 function rasterWaitMs(): number {
-  return Number(process.env.LOUPE_RASTER_WAIT_MS) || 10_000;
+  return Number(process.env.LUPA_RASTER_WAIT_MS) || 10_000;
 }
 
 export const SVG_FALLBACK_NOTE =
-  "Figma didn't render a PNG (its window is hidden or covered), so this image is Figma's SVG export rendered in Chromium. SVG export can leave out background blur, newer effects and occasionally a stroke: check a region against `loupe design` before changing it. Bring Figma to the front for an exact render.";
+  "Figma didn't render a PNG (its window is hidden or covered), so this image is Figma's SVG export rendered in Chromium. SVG export can leave out background blur, newer effects and occasionally a stroke: check a region against `lupa design` before changing it. Bring Figma to the front for an exact render.";
 
 /** Per command: once Figma's renderer has stalled, later nodes skip the PNG wait. */
 interface RenderState {
@@ -62,7 +62,7 @@ async function renderNode(
   try {
     return { png: await renderSvg(res.blobs[0]!.data, { width: node.w, height: node.h, scale }), fromSvg: true };
   } catch (e) {
-    throw new Error(`${HIDDEN_ERROR}\n(Loupe can render Figma's SVG export instead, but that needs Chromium: ${(e as Error).message})`);
+    throw new Error(`${HIDDEN_ERROR}\n(Lupa can render Figma's SVG export instead, but that needs Chromium: ${(e as Error).message})`);
   }
 }
 
@@ -232,7 +232,7 @@ export async function exportAssets(
 }
 
 export interface WrittenAssets {
-  /** One `file ← layer` line per file written, as `loupe assets` prints them. */
+  /** One `file ← layer` line per file written, as `lupa assets` prints them. */
   report: string;
   /** The report's "failed …" lines. */
   failures: string[];

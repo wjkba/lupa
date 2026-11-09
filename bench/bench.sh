@@ -1,33 +1,33 @@
 #!/usr/bin/env bash
 # Run configs × reps on one screen: bench/bench.sh <screen-name> <figma-url> <reps> <config>...
-#   e.g. bench/bench.sh settings "https://www.figma.com/design/KEY/x?node-id=1-2" 3 official framelink loupe-read loupe-full
-# Runs land in $BENCH_OUT (default /tmp/loupe-bench)/<screen>-<config>-<rep>; successful runs are
-# skipped, so re-running resumes (and redoes failed ones). Non-Loupe configs run in parallel. Loupe configs run one after
+#   e.g. bench/bench.sh settings "https://www.figma.com/design/KEY/x?node-id=1-2" 3 official framelink lupa-read lupa-full
+# Runs land in $BENCH_OUT (default /tmp/lupa-bench)/<screen>-<config>-<rep>; successful runs are
+# skipped, so re-running resumes (and redoes failed ones). Non-Lupa configs run in parallel. Lupa configs run one after
 # another, because they share the plugin (and alongside the parallel ones).
-# Figma runs one plugin per file: figwright can't share an invocation with loupe-* configs.
+# Figma runs one plugin per file: figwright can't share an invocation with lupa-* configs.
 # MODEL and BUDGET are passed through to run.sh.
 set -uo pipefail
 B=$(cd "$(dirname "$0")" && pwd)
 if [ $# -lt 4 ]; then sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
 SCREEN=$1; URL=$2; REPS=$3; shift 3
-OUT=${BENCH_OUT:-/tmp/loupe-bench}
-LOUPE=(); OTHER=()
+OUT=${BENCH_OUT:-/tmp/lupa-bench}
+LUPA=(); OTHER=()
 for c in "$@"; do
   case "$c" in
-    loupe-read|loupe-full) LOUPE+=("$c") ;;
+    lupa-read|lupa-full) LUPA+=("$c") ;;
     official|framelink|figwright) OTHER+=("$c") ;;
-    *) echo "unknown config: $c (official framelink figwright loupe-read loupe-full)" >&2; exit 2 ;;
+    *) echo "unknown config: $c (official framelink figwright lupa-read lupa-full)" >&2; exit 2 ;;
   esac
 done
-if [ ${#LOUPE[@]} -gt 0 ] && [[ " ${OTHER[*]} " == *" figwright "* ]]; then
-  echo "figwright needs its own plugin open, Loupe configs need Loupe's: run them in separate invocations." >&2; exit 2
+if [ ${#LUPA[@]} -gt 0 ] && [[ " ${OTHER[*]} " == *" figwright "* ]]; then
+  echo "figwright needs its own plugin open, Lupa configs need Lupa's: run them in separate invocations." >&2; exit 2
 fi
-if [ ${#LOUPE[@]} -gt 0 ]; then
+if [ ${#LUPA[@]} -gt 0 ]; then
   KEY=$(sed -nE 's#.*/(design|file|proto)/([A-Za-z0-9]+).*#\2#p' <<< "$URL")
-  if ! loupe status 2>&1 | grep -q "key ${KEY:-?})"; then
-    echo "The Loupe plugin is not connected to file ${KEY:-?}. Open it in Figma: Plugins → Development → Loupe." >&2; exit 1
+  if ! lupa status 2>&1 | grep -q "key ${KEY:-?})"; then
+    echo "The Lupa plugin is not connected to file ${KEY:-?}. Open it in Figma: Plugins → Development → Lupa." >&2; exit 1
   fi
-  echo "Loupe configs: keep Figma's window visible (not minimized), or its raster exports stall."
+  echo "Lupa configs: keep Figma's window visible (not minimized), or its raster exports stall."
 fi
 [[ " ${OTHER[*]} " == *" figwright "* ]] && echo "figwright: the figwright plugin must be running in the file."
 mkdir -p "$OUT"
@@ -51,15 +51,15 @@ START=$(date +%s)
 for rep in $(seq 1 "$REPS"); do
   for c in "${OTHER[@]}"; do run_one "$c" "$rep" & done
 done
-if [ ${#LOUPE[@]} -gt 0 ]; then
-  ( for rep in $(seq 1 "$REPS"); do for c in "${LOUPE[@]}"; do run_one "$c" "$rep"; done; done ) &
+if [ ${#LUPA[@]} -gt 0 ]; then
+  ( for rep in $(seq 1 "$REPS"); do for c in "${LUPA[@]}"; do run_one "$c" "$rep"; done; done ) &
 fi
 wait
 if [ -e "$LIMIT" ]; then rm -f "$LIMIT"; echo "Stopped at a usage limit. Re-run the same command after it resets: failed runs are redone." >&2; exit 3; fi
 echo "all runs finished in $(( $(date +%s) - START ))s → $OUT"
 cat <<EOF
 
-Score (Loupe plugin open on the file, Figma visible):
+Score (Lupa plugin open on the file, Figma visible):
   $B/score.sh "$URL" $OUT/$SCREEN-*-*
 Table only (after scoring):
   python3 $B/analyze.py --table $OUT/$SCREEN-*-*

@@ -18,7 +18,7 @@ let scene: ReturnType<typeof productCard>;
 let dir: string;
 
 beforeAll(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "loupe-"));
+  dir = await mkdtemp(path.join(tmpdir(), "lupa-"));
   bridge = new Bridge({ port: PORT });
   await bridge.start();
   scene = productCard();

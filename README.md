@@ -1,34 +1,34 @@
-# Loupe
+# Lupa
 
-Loupe lets a coding agent read a Figma design and rebuild it faithfully. It is a CLI (`loupe`) plus a small Figma plugin, with an optional MCP server. It is **read-only**: the plugin never edits the file.
+Lupa lets a coding agent read a Figma design and rebuild it faithfully. It is a CLI (`lupa`) plus a small Figma plugin, with an optional MCP server. It is **read-only**: the plugin never edits the file.
 
 One command gives the agent what it needs for a frame:
 
 ```bash
-loupe design "<figma link>" -d src/assets --screenshot
+lupa design "<figma link>" -d src/assets --screenshot
 ```
 
 - **A compact tree of the frame.** It holds the layout as flex/grid, exact sizes and CSS values, design tokens by name, and each repeated component once, with per-instance overrides.
 - **The frame's icons and images**, written to `src/assets`, with each file named on its layer.
 - **A screenshot** for the agent to look at.
 
-After building, `loupe compare` renders the page, diffs it against Figma and names the Figma layers where they differ.
+After building, `lupa compare` renders the page, diffs it against Figma and names the Figma layers where they differ.
 
 ## How good is it
 
 In the benchmark an agent (Claude Opus 5.5) builds a Figma screen as HTML/CSS, reading the design with one tool. Mean of 3 runs per tool on a card-grid screen:
 
-| | **Loupe** | Official Figma MCP | Framelink | figwright |
+| | **Lupa** | Official Figma MCP | Framelink | figwright |
 |---|---|---|---|---|
 | Pixel mismatch vs Figma | **0.40%** | 0.42% | 2.12% (0.41–3.86%) | 0.41% |
 | Text layers within 1 px vertically | **100%** | 100% | 66% (15–100%) | 100% |
-| Cost per run | **$0.55** | $1.13 | $0.58 | $1.20 |
+| Design data read from Figma | **28k chars** | 80k | 29k | 110k |
 | Context added | **28k tokens** | 63k | 30k | 82k |
 | Agent turns | **10** | 25 | 10 | 24 |
 
-- **Against the official Figma MCP:** the same quality at half the cost and context.
-- **Against Framelink:** about the same cost, without its layout drift. In 2 of 3 Framelink runs the grid rows ended up several pixels off.
-- **Consistency:** all 6 runs of the current Loupe version rendered pixel-identically.
+- **Against the official Figma MCP:** the same quality with less than half the context and turns.
+- **Against Framelink:** just as lean, without its layout drift. In 2 of 3 Framelink runs the grid rows ended up several pixels off.
+- **Consistency:** all 6 runs of the current Lupa version rendered pixel-identically.
 
 A second screen (a table page) gave the same picture. For the method, both screens and how to re-run it, see [bench/README.md](bench/README.md).
 
@@ -81,50 +81,50 @@ The full format is in [docs/FORMAT.md](docs/FORMAT.md).
 Requirements: Node 20+ and Figma (desktop app or browser).
 
 ```bash
-git clone <this repo> figma-loupe && cd figma-loupe
+git clone <this repo> figma-lupa && cd figma-lupa
 npm ci && npm run build
-npm link                                                   # puts `loupe` on your PATH
+npm link                                                   # puts `lupa` on your PATH
 mkdir -p ~/.claude/skills && cp -r skills/figma-implement ~/.claude/skills/
 ```
 
 1. **Import the plugin.** In any Figma file, go to *Plugins → Development → Import plugin from manifest…* and pick `plugin/manifest.json`.
-2. **The skill** you just copied teaches Claude the commands and the output format. It loads only for Figma work, so Loupe costs no context in other sessions.
-3. **Browser for `compare --url`:** Loupe uses Playwright. It looks for `LOUPE_BROWSER`, then Playwright's browsers, then Google Chrome. If you have none, run `npx playwright install chromium`.
+2. **The skill** you just copied teaches Claude the commands and the output format. It loads only for Figma work, so Lupa costs no context in other sessions.
+3. **Browser for `compare --url`:** Lupa uses Playwright. It looks for `LUPA_BROWSER`, then Playwright's browsers, then Google Chrome. If you have none, run `npx playwright install chromium`.
 
-**Optional MCP server**, for clients without a shell: `claude mcp add --scope user loupe -- loupe mcp`.
+**Optional MCP server**, for clients without a shell: `claude mcp add --scope user lupa -- lupa mcp`.
 
 ## Daily use
 
-1. Open the design in Figma, run *Plugins → Development → Loupe*, and keep its small window open.
+1. Open the design in Figma, run *Plugins → Development → Lupa*, and keep its small window open.
 2. Select a frame or copy its link.
 3. Ask Claude, for example: "Implement the selected Figma frame in `src/components/ProductCard.tsx` with our Tailwind tokens."
 
-The first `loupe` command starts a background hub for the plugin to connect to. It exits after an hour without requests. Several Claude sessions and several open Figma files can share it.
+The first `lupa` command starts a background hub for the plugin to connect to. It exits after an hour without requests. Several Claude sessions and several open Figma files can share it.
 
 ## Commands
 
-A target is a Figma URL (in quotes), node ids like `12:34`, or nothing for the current selection. Each command has an MCP tool of the same purpose. Run `loupe help` for every option.
+A target is a Figma URL (in quotes), node ids like `12:34`, or nothing for the current selection. Each command has an MCP tool of the same purpose. Run `lupa help` for every option.
 
 | Command | What it does |
 |---|---|
-| `loupe design [target]` | The tree above, within a token budget (`--budget`, default 8000). Cut subtrees name the id to fetch next. `-d DIR` also writes the assets and puts their paths on the layers. `--screenshot` adds a PNG. |
-| `loupe screenshot [target]` | PNG at up to 2×, sized for vision models and tiled when tall. |
-| `loupe assets [target] -d DIR` | Icons as SVG and images as their original files, deduplicated. Use `--current-color` for monochrome icons. |
-| `loupe compare [target] --url <page> --selector <css>` | Renders your page at the design's width and diffs it against Figma. Prints the mismatch and the differing regions by Figma layer, and writes a design / page / diff image. `--image <png>` compares a screenshot instead. |
-| `loupe tokens` | Variables (all modes) and styles, as a list, CSS or JSON. |
-| `loupe outline`, `loupe find <query>` | Pages and frames, and search by layer name (add `--text` to search text content). |
-| `loupe css <target>` | Figma's own Dev Mode CSS, as a cross-check. |
-| `loupe status` | Connected files and selections. |
+| `lupa design [target]` | The tree above, within a token budget (`--budget`, default 8000). Cut subtrees name the id to fetch next. `-d DIR` also writes the assets and puts their paths on the layers. `--screenshot` adds a PNG. |
+| `lupa screenshot [target]` | PNG at up to 2×, sized for vision models and tiled when tall. |
+| `lupa assets [target] -d DIR` | Icons as SVG and images as their original files, deduplicated. Use `--current-color` for monochrome icons. |
+| `lupa compare [target] --url <page> --selector <css>` | Renders your page at the design's width and diffs it against Figma. Prints the mismatch and the differing regions by Figma layer, and writes a design / page / diff image. `--image <png>` compares a screenshot instead. |
+| `lupa tokens` | Variables (all modes) and styles, as a list, CSS or JSON. |
+| `lupa outline`, `lupa find <query>` | Pages and frames, and search by layer name (add `--text` to search text content). |
+| `lupa css <target>` | Figma's own Dev Mode CSS, as a cross-check. |
+| `lupa status` | Connected files and selections. |
 
 ## Troubleshooting
 
-- **"No Figma file is connected":** run the plugin in the file and keep its window open. After updating Loupe, run the plugin again.
-- **"used Figma's SVG export":** Figma stops rendering PNGs while its window is hidden or covered, so Loupe rendered the SVG export in Chromium instead. Layout and text match; blur, some newer effects and occasionally a stroke can be missing. For an exact render, bring Figma to the front and run the command again.
-- **Port in use:** set `LOUPE_PORT`, change the port in `plugin/src/ui.html` and `plugin/manifest.json`, and rebuild.
-- **Logs:** the hub logs every request to `$TMPDIR/loupe/hub.log`. Set `LOUPE_DEBUG=1` for bridge events.
+- **"No Figma file is connected":** run the plugin in the file and keep its window open. After updating Lupa, run the plugin again.
+- **"used Figma's SVG export":** Figma stops rendering PNGs while its window is hidden or covered, so Lupa rendered the SVG export in Chromium instead. Layout and text match; blur, some newer effects and occasionally a stroke can be missing. For an exact render, bring Figma to the front and run the command again.
+- **Port in use:** set `LUPA_PORT`, change the port in `plugin/src/ui.html` and `plugin/manifest.json`, and rebuild.
+- **Logs:** the hub logs every request to `$TMPDIR/lupa/hub.log`. Set `LUPA_DEBUG=1` for bridge events.
 
 ## More
 
 - [docs/internals.md](docs/internals.md): how the output stays faithful, the architecture, security, development.
-- [docs/landscape.md](docs/landscape.md): other Figma tools and why Loupe is built this way.
+- [docs/landscape.md](docs/landscape.md): other Figma tools and why Lupa is built this way.
 - [bench/README.md](bench/README.md): the benchmark.

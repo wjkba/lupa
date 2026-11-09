@@ -3,8 +3,8 @@
  *
  *   node bench/score-text.mjs --snapshot <figma.json> [--node <id|url>] [--refresh] <run-dir>...
  *
- * --snapshot is a raw Loupe snapshot of the frame (bench/snapshot.mts). It is fetched through
- * the Loupe plugin when the file is missing (or with --refresh) and --node is given; otherwise
+ * --snapshot is a raw Lupa snapshot of the frame (bench/snapshot.mts). It is fetched through
+ * the Lupa plugin when the file is missing (or with --refresh) and --node is given; otherwise
  * the cached file is reused, so scoring doesn't need Figma.
  *
  * Each run's index.html is rendered in headless Chromium at the frame's size. Every visible
@@ -54,7 +54,7 @@ if (!snapshotFile || !runs.length) {
 
 if (refresh || !existsSync(snapshotFile)) {
   if (!node) {
-    console.error(`${snapshotFile} does not exist; pass --node <id|url> to fetch it through the Loupe plugin`);
+    console.error(`${snapshotFile} does not exist; pass --node <id|url> to fetch it through the Lupa plugin`);
     process.exit(2);
   }
   const r = spawnSync("npx", ["tsx", path.join(BENCH, "snapshot.mts"), node, snapshotFile], { cwd: REPO, stdio: "inherit" });
@@ -128,12 +128,12 @@ async function loadChromium() {
       .flatMap((d) => ["chrome-linux64/chrome", "chrome-linux/chrome", "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"].map((p) => path.join(cache, d, p)))
       .filter(existsSync);
   } catch {}
-  for (const executablePath of [process.env.LOUPE_BROWSER, undefined, ...exes].filter((x, i) => i === 1 || x)) {
+  for (const executablePath of [process.env.LUPA_BROWSER, undefined, ...exes].filter((x, i) => i === 1 || x)) {
     try {
       return await mod.chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
     } catch {}
   }
-  throw new Error("no Chromium: run `npx playwright install chromium` or set LOUPE_BROWSER");
+  throw new Error("no Chromium: run `npx playwright install chromium` or set LUPA_BROWSER");
 }
 
 /** Runs in the page: match Figma text layers to page text and measure them. */

@@ -1,25 +1,25 @@
 ---
 name: figma-implement
-description: Implement a Figma frame or component faithfully in code with the `loupe` CLI (design, screenshot, assets, compare). Use when the user shares a Figma link, mentions the selected frame in Figma, or asks to build or match UI from a Figma design.
+description: Implement a Figma frame or component faithfully in code with the `lupa` CLI (design, screenshot, assets, compare). Use when the user shares a Figma link, mentions the selected frame in Figma, or asks to build or match UI from a Figma design.
 ---
 
-# Implementing a Figma design with Loupe
+# Implementing a Figma design with Lupa
 
-`loupe` reads the live Figma file through the Loupe plugin, and it is read-only. If the first command fails:
+`lupa` reads the live Figma file through the Lupa plugin, and it is read-only. If the first command fails:
 
-- **"command not found":** ask the user to run `npm link` in the Loupe folder.
-- **No file connected:** ask the user to open the file in Figma, run *Plugins → Development → Loupe*, and keep the plugin window open.
+- **"command not found":** ask the user to run `npm link` in the Lupa folder.
+- **No file connected:** ask the user to open the file in Figma, run *Plugins → Development → Lupa*, and keep the plugin window open.
 
-The target is a Figma URL (in quotes, because it contains `&`), node ids like `12:34`, or nothing for the current selection. When a session also has the Loupe MCP tools (`get_design`, …), they take the same options.
+The target is a Figma URL (in quotes, because it contains `&`), node ids like `12:34`, or nothing for the current selection. When a session also has the Lupa MCP tools (`get_design`, …), they take the same options.
 
 ## 1. Read
 
-1. Run `loupe design [target] -d <the project's asset folder> --screenshot` and read the whole output before writing code. The format is described at the end of this file.
+1. Run `lupa design [target] -d <the project's asset folder> --screenshot` and read the whole output before writing code. The format is described at the end of this file.
    - `-d` writes the icons as SVG and the images as their original files. Each `svg` and `img` layer names its file in `src:`, so use that path where the layer is. You don't need to open the files. Add `--current-color` for monochrome icons that should inherit the text colour, and follow the project's icon conventions (sprite, components).
    - Open the `image:` file under `## screenshot` to see the intent: hierarchy, alignment, what is decorative.
    - `## tokens` lists the design tokens. Map every `$name` onto the codebase's existing tokens (Tailwind theme, CSS variables, theme object). Search the codebase for the value or the `var(--…)` name, and use raw values only when nothing matches.
    - `## components` holds the components used more than once. If the codebase already has one (Button, Input, …), use it and map its props. Otherwise build it once. `--components names` gives a smaller output when the codebase already has most of them.
-   - `… +N layers not shown → get_design #id` means part of the tree was cut. Run `loupe design <id> -d <same folder>` before building that part. Don't guess its contents.
+   - `… +N layers not shown → get_design #id` means part of the tree was cut. Run `lupa design <id> -d <same folder>` before building that part. Don't guess its contents.
 
 ## 2. Build
 
@@ -38,19 +38,19 @@ The target is a Figma URL (in quotes, because it contains `&`), node ids like `1
 ## 3. Verify
 
 1. Start the page that shows your implementation (dev server, Storybook).
-2. Run `loupe compare [target] --url <page url> --selector <css selector of the element>`. Loupe renders the page at the design's width and prints the mismatch % and the differing regions, each named by its Figma layer. It also writes a design | implementation | diff image. Open that image.
+2. Run `lupa compare [target] --url <page url> --selector <css selector of the element>`. Lupa renders the page at the design's width and prints the mismatch % and the differing regions, each named by its Figma layer. It also writes a design | implementation | diff image. Open that image.
    - If the page can't be rendered here, take a PNG screenshot of the element and pass `--image <png>` instead.
-3. Fix the named layers. Compare against that layer's line in `loupe design`, not by eye. Repeat until the remaining mismatch is font anti-aliasing or intended (dynamic data, a responsive width).
-4. When the design itself is unclear, `loupe css <id>` shows Figma's own Dev Mode CSS as a cross-check.
+3. Fix the named layers. Compare against that layer's line in `lupa design`, not by eye. Repeat until the remaining mismatch is font anti-aliasing or intended (dynamic data, a responsive width).
+4. When the design itself is unclear, `lupa css <id>` shows Figma's own Dev Mode CSS as a cross-check.
 
 ## Other commands
 
-- `loupe outline` lists the pages and top-level frames, for when the user names a screen but gives no link.
-- `loupe find <text>` searches layer names; add `--text` to search text content.
-- `loupe tokens --format css` dumps the file's variables and styles, to bootstrap a theme.
-- `loupe screenshot [target]` and `loupe assets [target] -d DIR` do the screenshot and the export on their own. `loupe assets --as svg|png` exports the target layers themselves.
-- `loupe status` lists the connected Figma files and their selections.
-- `loupe help` lists every option.
+- `lupa outline` lists the pages and top-level frames, for when the user names a screen but gives no link.
+- `lupa find <text>` searches layer names; add `--text` to search text content.
+- `lupa tokens --format css` dumps the file's variables and styles, to bootstrap a theme.
+- `lupa screenshot [target]` and `lupa assets [target] -d DIR` do the screenshot and the export on their own. `lupa assets --as svg|png` exports the target layers themselves.
+- `lupa status` lists the connected Figma files and their selections.
+- `lupa help` lists every option.
 
 ## Output format
 

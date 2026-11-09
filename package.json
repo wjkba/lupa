@@ -1,11 +1,11 @@
 {
-  "name": "figma-loupe",
+  "name": "figma-lupa",
   "version": "0.2.0",
   "description": "Read-only Figma CLI, MCP server and plugin for pixel-faithful design-to-code with a small context footprint.",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "loupe": "dist/cli.js"
+    "lupa": "dist/cli.js"
   },
   "engines": {
     "node": ">=20"

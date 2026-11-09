@@ -1,6 +1,6 @@
 /**
  * The get_design output legend. Agents get it once: as MCP server
- * instructions, from `loupe format`, and inside the figma-implement skill
+ * instructions, from `lupa format`, and inside the figma-implement skill
  * (a test keeps the skill in sync).
  */
 export const FORMAT_LEGEND = `get_design format — one line per layer, children indented:

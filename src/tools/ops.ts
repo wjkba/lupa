@@ -1,5 +1,5 @@
 /**
- * Every Loupe operation, shared by the CLI and the MCP server. Each returns
+ * Every Lupa operation, shared by the CLI and the MCP server. Each returns
  * text for the agent (plus PNG images for the visual ones); the front ends
  * only parse arguments and deliver the result.
  */
@@ -40,7 +40,7 @@ export interface CompareOptions {
   file?: string;
 }
 
-export class Loupe {
+export class Lupa {
   /** How long to wait for the plugin to (re)connect before failing. */
   pluginWaitMs = 4_000;
 
@@ -62,7 +62,7 @@ export class Loupe {
       const byKey = list.find((p) => p.fileKey === t.fileKey);
       if (byKey) fileRef = byKey.conn;
       else if (list.some((p) => p.fileKey)) {
-        throw new Error(`The URL points at file ${t.fileKey}, which is not open with the Loupe plugin. Open that file in Figma and run the plugin there.`);
+        throw new Error(`The URL points at file ${t.fileKey}, which is not open with the Lupa plugin. Open that file in Figma and run the plugin there.`);
       }
     }
     if (t.ids.length) return { ids: t.ids, file: fileRef };

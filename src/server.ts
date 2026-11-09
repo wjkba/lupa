@@ -1,6 +1,6 @@
 /**
- * Loupe MCP server (stdio). Read-only: every tool reads the open Figma file
- * through the Loupe plugin; nothing is ever written to Figma.
+ * Lupa MCP server (stdio). Read-only: every tool reads the open Figma file
+ * through the Lupa plugin; nothing is ever written to Figma.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -8,9 +8,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Bridge, SERVER_VERSION } from "./bridge/hub";
 import { FORMAT_LEGEND } from "./shared/legend";
-import { Loupe } from "./tools/ops";
+import { Lupa } from "./tools/ops";
 
-export const INSTRUCTIONS = `Loupe reads Figma designs (read-only) for faithful implementation.
+export const INSTRUCTIONS = `Lupa reads Figma designs (read-only) for faithful implementation.
 
 Workflow: get_design with assets_dir and screenshot: true (structure, exact styles, icon/image files, a PNG to look at) → build → compare_screenshot with your running page (url) or a screenshot of it, fix the listed regions, repeat.
 Targets: a Figma URL, node ids ("12:34", comma-separated), or nothing = the user's current selection in Figma.
@@ -41,21 +41,21 @@ function fail(e: unknown) {
 }
 
 export function createServer(bridge: Bridge): McpServer {
-  const server = new McpServer({ name: "loupe", version: SERVER_VERSION }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "lupa", version: SERVER_VERSION }, { instructions: INSTRUCTIONS });
 
-  const loupe = new Loupe(bridge);
+  const lupa = new Lupa(bridge);
 
   server.registerTool(
     "status",
     {
       title: "Connection status",
-      description: "Which Figma files are connected through the Loupe plugin, their current page and selection.",
+      description: "Which Figma files are connected through the Lupa plugin, their current page and selection.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
     async () => {
       try {
-        return text(await loupe.status());
+        return text(await lupa.status());
       } catch (e) {
         return fail(e);
       }
@@ -76,7 +76,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ page, depth, file }) => {
       try {
-        return text(await loupe.outline({ page, depth, file }));
+        return text(await lupa.outline({ page, depth, file }));
       } catch (e) {
         return fail(e);
       }
@@ -101,7 +101,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ query, text: byText, types, page, within, limit, file }) => {
       try {
-        return text(await loupe.find({ query, text: byText, types, page, within, limit, file }));
+        return text(await lupa.find({ query, text: byText, types, page, within, limit, file }));
       } catch (e) {
         return fail(e);
       }
@@ -136,7 +136,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ target, budget, components, depth, include_hidden, expand_vectors, assets_dir, current_color, screenshot, file }) => {
       try {
-        const t = await loupe.design({
+        const t = await lupa.design({
           target,
           budget,
           components,
@@ -148,7 +148,7 @@ export function createServer(bridge: Bridge): McpServer {
           file,
         });
         if (!screenshot) return text(t);
-        const shot = await loupe.screenshot({ target, file });
+        const shot = await lupa.screenshot({ target, file });
         return visual({ text: `${t}\n\n## screenshot\n${shot.text}`, images: shot.images });
       } catch (e) {
         return fail(e);
@@ -172,7 +172,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ target, scale, save_to, file }) => {
       try {
-        return visual(await loupe.screenshot({ target, scale, saveTo: save_to, file }));
+        return visual(await lupa.screenshot({ target, scale, saveTo: save_to, file }));
       } catch (e) {
         return fail(e);
       }
@@ -197,7 +197,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ target, dir, as, scale, current_color, file }) => {
       try {
-        return text(await loupe.assets({ target, dir, as, scale, currentColor: current_color, file }));
+        return text(await lupa.assets({ target, dir, as, scale, currentColor: current_color, file }));
       } catch (e) {
         return fail(e);
       }
@@ -218,7 +218,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ format, filter, file }) => {
       try {
-        return text(await loupe.tokens({ format, filter, file }));
+        return text(await lupa.tokens({ format, filter, file }));
       } catch (e) {
         return fail(e);
       }
@@ -235,7 +235,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ target, file }) => {
       try {
-        return text(await loupe.css({ target, file }));
+        return text(await lupa.css({ target, file }));
       } catch (e) {
         return fail(e);
       }
@@ -247,7 +247,7 @@ export function createServer(bridge: Bridge): McpServer {
     {
       title: "Compare with implementation",
       description:
-        "Pixel-diffs your implementation against the Figma render of the target. Pass url (+ selector) to have Loupe render your running page at the design's width, or image = a PNG screenshot. Returns the mismatch %, the differing regions mapped to Figma layers, and a design | implementation | diff image.",
+        "Pixel-diffs your implementation against the Figma render of the target. Pass url (+ selector) to have Lupa render your running page at the design's width, or image = a PNG screenshot. Returns the mismatch %, the differing regions mapped to Figma layers, and a design | implementation | diff image.",
       inputSchema: {
         target: targetParam,
         url: z.string().optional().describe("Page with your implementation, e.g. http://localhost:5173/sheet. Rendered in headless Chromium at the design's width, 2x."),
@@ -262,7 +262,7 @@ export function createServer(bridge: Bridge): McpServer {
     },
     async ({ target, url, selector, wait_for, image, threshold, save_diff, file }) => {
       try {
-        return visual(await loupe.compare({ target, url, selector, waitFor: wait_for, image, threshold, saveDiff: save_diff, file }));
+        return visual(await lupa.compare({ target, url, selector, waitFor: wait_for, image, threshold, saveDiff: save_diff, file }));
       } catch (e) {
         return fail(e);
       }
@@ -273,9 +273,9 @@ export function createServer(bridge: Bridge): McpServer {
 }
 
 export async function main(): Promise<void> {
-  const debug = !!process.env.LOUPE_DEBUG;
-  const bridge = new Bridge({ log: (m) => debug && process.stderr.write(`[loupe] ${m}\n`) });
-  bridge.start().catch((e) => process.stderr.write(`[loupe] ${e.message}\n`));
+  const debug = !!process.env.LUPA_DEBUG;
+  const bridge = new Bridge({ log: (m) => debug && process.stderr.write(`[lupa] ${m}\n`) });
+  bridge.start().catch((e) => process.stderr.write(`[lupa] ${e.message}\n`));
   const server = createServer(bridge);
   await server.connect(new StdioServerTransport());
   const shutdown = () => {

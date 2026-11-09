@@ -37,10 +37,10 @@
   function render(state) {
     var dot = $("dot");
     dot.className = "dot" + (connected ? " ok" : "");
-    $("status").textContent = connected ? "Connected to your agent" : "Waiting for Loupe…";
+    $("status").textContent = connected ? "Connected to your agent" : "Waiting for Lupa…";
     $("detail").textContent = connected
       ? "Read-only. Keep this open while the agent reads the design."
-      : "Run any loupe command (or start an agent with the Loupe MCP server). Port " + PORT + ".";
+      : "Run any lupa command (or start an agent with the Lupa MCP server). Port " + PORT + ".";
     var sel = (state && state.selection) || [];
     var box = $("sel");
     if (sel.length === 0) {

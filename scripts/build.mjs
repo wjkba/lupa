@@ -20,7 +20,7 @@ const node = {
 };
 
 const cli = { ...node, entryPoints: ["src/cli-main.ts"], outfile: "dist/cli.js" };
-// Kept for MCP configs that point at dist/server.js; same as `loupe mcp`.
+// Kept for MCP configs that point at dist/server.js; same as `lupa mcp`.
 const server = { ...node, entryPoints: ["src/index.ts"], outfile: "dist/server.js" };
 
 // Figma reloads a development plugin whenever its files are written, which drops

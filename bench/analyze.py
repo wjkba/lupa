@@ -11,7 +11,7 @@ import base64, json, re, struct, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-CONFIGS = ["official", "framelink", "figwright", "loupe-read", "loupe-full"]
+CONFIGS = ["official", "framelink", "figwright", "lupa-read", "lupa-full"]
 
 
 def png_tokens(b64: str) -> int:
@@ -26,7 +26,7 @@ def png_tokens(b64: str) -> int:
 
 
 def figma_tool(key: str) -> bool:
-    return "figma" in key.lower() or "figwright" in key.lower() or key.startswith("loupe")
+    return "figma" in key.lower() or "figwright" in key.lower() or key.startswith("lupa")
 
 
 def context_of(usage: dict) -> int:
@@ -64,9 +64,9 @@ def transcript_metrics(path: Path) -> dict:
                 name = c["name"]
                 if name == "Bash":
                     words = ((c.get("input") or {}).get("command") or "").split()
-                    # Agents chain commands (`ls -la && loupe design …`): name the call after the loupe part.
-                    at = next((i for i, w in enumerate(words[:-1]) if w == "loupe" and (i == 0 or words[i - 1] in ("&&", ";", "||", "|"))), None)
-                    name = f"loupe {words[at + 1]}" if at is not None else f"Bash:{words[0] if words else ''}"
+                    # Agents chain commands (`ls -la && lupa design …`): name the call after the lupa part.
+                    at = next((i for i, w in enumerate(words[:-1]) if w == "lupa" and (i == 0 or words[i - 1] in ("&&", ";", "||", "|"))), None)
+                    name = f"lupa {words[at + 1]}" if at is not None else f"Bash:{words[0] if words else ''}"
                 names[c["id"]] = name
                 calls[name] += 1
         elif m.get("type") == "user":
@@ -98,7 +98,7 @@ def transcript_metrics(path: Path) -> dict:
         "context_added": peak - first,
         "figma_text_chars": figma_chars,
         "figma_text_tokens_est": figma_chars // 3,
-        # Loupe writes screenshots to files that the agent opens with Read, so every image counts.
+        # Lupa writes screenshots to files that the agent opens with Read, so every image counts.
         "image_tokens_est": img_tokens,
         "figma_errors": figma_errors,
         "calls": dict(calls),
@@ -140,7 +140,6 @@ COLUMNS = [
     ("Text ≤1px", "within_1px_pct", "{:.0f}%"),
     ("Text y ≤1px", "y_within_1px_pct", "{:.0f}%"),
     ("Text pos median", "pos_median_px", "{:.1f} px"),
-    ("Cost", "cost_usd", "${:.2f}"),
     ("Context added", "context_added", "{:,.0f}"),
     ("Figma text", "figma_text_chars", "{:,.0f} ch"),
     ("Wall", "wall_s", "{:.0f} s"),

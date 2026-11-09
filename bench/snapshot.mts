@@ -1,7 +1,7 @@
 /**
- * Save a raw Loupe snapshot of one Figma node to JSON, so scoring can run without Figma.
+ * Save a raw Lupa snapshot of one Figma node to JSON, so scoring can run without Figma.
  *   npx tsx bench/snapshot.mts <node-id | figma url> <out.json>
- * Needs the Loupe plugin open on that file. Retries while the plugin reloads.
+ * Needs the Lupa plugin open on that file. Retries while the plugin reloads.
  */
 import { writeFileSync } from "node:fs";
 import { Bridge } from "../src/bridge/hub";

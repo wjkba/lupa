@@ -95,7 +95,7 @@ describe("hub and peers", () => {
     const p = port();
     const hub = bridge(p);
     await hub.start();
-    await expect(hub.request("ping", {})).rejects.toThrow(/Plugins → Development → Loupe/);
+    await expect(hub.request("ping", {})).rejects.toThrow(/Plugins → Development → Lupa/);
   });
 });
 

@@ -1,10 +1,10 @@
 /**
- * The `loupe` command line: the same read-only operations as the MCP server,
+ * The `lupa` command line: the same read-only operations as the MCP server,
  * for agents that have a shell. Text goes to stdout; images are written to
  * files whose paths are printed, so the agent opens only what it needs.
  *
  * The Figma plugin needs a long-lived process to stay connected to, so the
- * first command starts a background hub (`loupe serve`) and every command
+ * first command starts a background hub (`lupa serve`) and every command
  * joins it as a peer. The hub exits after an idle period.
  */
 
@@ -18,11 +18,11 @@ import { Bridge, SERVER_VERSION } from "./bridge/hub";
 import { FORMAT_LEGEND } from "./shared/legend";
 import { DEFAULT_PORT } from "./shared/protocol";
 import type { Visual } from "./tools/media";
-import { Loupe, type ComponentsMode } from "./tools/ops";
+import { Lupa, type ComponentsMode } from "./tools/ops";
 
-export const USAGE = `loupe — read Figma designs for faithful implementation (read-only)
+export const USAGE = `lupa — read Figma designs for faithful implementation (read-only)
 
-Usage: loupe <command> [target] [options]
+Usage: lupa <command> [target] [options]
 target: a Figma URL (quote it), node ids like 12:34 (several allowed),
         or nothing = the current selection in Figma.
 
@@ -58,7 +58,7 @@ Other
   mcp                   Run as an MCP server over stdio
 
 Global: --file NAME|KEY  pick the Figma file when several are open
-        --port N         default ${DEFAULT_PORT} (or LOUPE_PORT)`;
+        --port N         default ${DEFAULT_PORT} (or LUPA_PORT)`;
 
 type OptionSpec = Record<string, { type: "string" | "boolean"; short?: string; multiple?: boolean }>;
 type Values = Record<string, string | boolean | string[] | undefined>;
@@ -117,7 +117,7 @@ const str = (v: Values, key: string) => v[key] as string | undefined;
 
 /** Where images go when -o is not given. */
 export function imageDir(): string {
-  return path.join(os.tmpdir(), "loupe");
+  return path.join(os.tmpdir(), "lupa");
 }
 
 /** Write a visual result's images and append their paths to its text. */
@@ -135,14 +135,14 @@ function deliver(v: Visual, out: string | undefined, kind: string): string {
   return [v.text, ...files.map((f) => `image: ${f}`)].join("\n");
 }
 
-async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise<string> {
+async function run(cmd: string, v: Values, pos: string[], lupa: Lupa): Promise<string> {
   const target = pos.length ? pos.join(" ") : undefined;
   const file = str(v, "file");
   switch (cmd) {
     case "status":
-      return loupe.status();
+      return lupa.status();
     case "design": {
-      const text = await loupe.design({
+      const text = await lupa.design({
         target,
         file,
         budget: num(v, "budget", 500, 100_000),
@@ -154,12 +154,12 @@ async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise
         currentColor: v["current-color"] === true,
       });
       if (v.screenshot !== true) return text;
-      return `${text}\n\n## screenshot\n${deliver(await loupe.screenshot({ target, file }), undefined, "screenshot")}`;
+      return `${text}\n\n## screenshot\n${deliver(await lupa.screenshot({ target, file }), undefined, "screenshot")}`;
     }
     case "screenshot":
-      return deliver(await loupe.screenshot({ target, file, scale: num(v, "scale", 0.1, 4), saveTo: str(v, "full") }), str(v, "out"), "screenshot");
+      return deliver(await lupa.screenshot({ target, file, scale: num(v, "scale", 0.1, 4), saveTo: str(v, "full") }), str(v, "out"), "screenshot");
     case "assets":
-      return loupe.assets({
+      return lupa.assets({
         target,
         file,
         dir: str(v, "dir"),
@@ -168,15 +168,15 @@ async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise
         currentColor: v["current-color"] === true,
       });
     case "tokens":
-      return loupe.tokens({ file, format: oneOf(v, "format", ["list", "css", "json"] as const), filter: str(v, "filter") });
+      return lupa.tokens({ file, format: oneOf(v, "format", ["list", "css", "json"] as const), filter: str(v, "filter") });
     case "css":
       if (!target) throw new UsageError("css needs a target (node id or URL)");
-      return loupe.css({ target, file });
+      return lupa.css({ target, file });
     case "outline":
-      return loupe.outline({ file, page: str(v, "page"), depth: num(v, "depth", 1, 4) });
+      return lupa.outline({ file, page: str(v, "page"), depth: num(v, "depth", 1, 4) });
     case "find":
       if (!target) throw new UsageError("find needs a query");
-      return loupe.find({
+      return lupa.find({
         query: target,
         file,
         text: v.text === true,
@@ -187,7 +187,7 @@ async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise
       });
     case "compare": {
       if (!v.url === !v.image) throw new UsageError("compare needs --url (your running page) or --image (a PNG screenshot)");
-      const res = await loupe.compare({
+      const res = await lupa.compare({
         target,
         file,
         url: str(v, "url"),
@@ -199,13 +199,13 @@ async function run(cmd: string, v: Values, pos: string[], loupe: Loupe): Promise
       return deliver(res, str(v, "out"), "compare");
     }
     default:
-      throw new UsageError(`Unknown command "${cmd}". Run loupe help.`);
+      throw new UsageError(`Unknown command "${cmd}". Run lupa help.`);
   }
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Start `loupe serve` detached; it outlives this command so the plugin stays connected. */
+/** Start `lupa serve` detached; it outlives this command so the plugin stays connected. */
 function spawnHub(port: number): string {
   const dir = imageDir();
   mkdirSync(dir, { recursive: true });
@@ -239,7 +239,7 @@ async function joinHub(port: number, log: (m: string) => void): Promise<{ bridge
       /* still starting */
     }
   }
-  throw new Error(`Could not start the Loupe hub on port ${port} (is another program using it? set LOUPE_PORT). Log: ${logFile}`);
+  throw new Error(`Could not start the Lupa hub on port ${port} (is another program using it? set LUPA_PORT). Log: ${logFile}`);
 }
 
 async function serve(port: number, idleMin: number, log: (m: string) => void): Promise<void> {
@@ -295,7 +295,7 @@ export async function runCli(argv: string[], io: CliIO = { out: (t) => process.s
       positionals: string[];
     });
   } catch (e) {
-    io.err(`${(e as Error).message}\nRun loupe help.`);
+    io.err(`${(e as Error).message}\nRun lupa help.`);
     return 2;
   }
   if (values.help) {
@@ -307,11 +307,11 @@ export async function runCli(argv: string[], io: CliIO = { out: (t) => process.s
     return 0;
   }
 
-  const debug = !!process.env.LOUPE_DEBUG;
+  const debug = !!process.env.LUPA_DEBUG;
   let port: number;
   let idle: number;
   try {
-    port = num(values, "port", 1, 65535) ?? Number(process.env.LOUPE_PORT ?? DEFAULT_PORT);
+    port = num(values, "port", 1, 65535) ?? Number(process.env.LUPA_PORT ?? DEFAULT_PORT);
     idle = num(values, "idle", 0, 7 * 24 * 60) ?? 60;
   } catch (e) {
     io.err((e as Error).message);
@@ -319,11 +319,11 @@ export async function runCli(argv: string[], io: CliIO = { out: (t) => process.s
   }
 
   if (cmd === "serve") {
-    await serve(port, idle, (m) => io.err(`[loupe ${new Date().toISOString()}] ${m}`));
+    await serve(port, idle, (m) => io.err(`[lupa ${new Date().toISOString()}] ${m}`));
     return 0;
   }
   if (cmd === "mcp") {
-    process.env.LOUPE_PORT = String(port);
+    process.env.LUPA_PORT = String(port);
     const { main } = await import("./server");
     await main();
     await new Promise(() => {}); // the MCP server exits the process itself
@@ -332,11 +332,11 @@ export async function runCli(argv: string[], io: CliIO = { out: (t) => process.s
   let bridge = io.bridge;
   let fresh = false;
   try {
-    if (!bridge) ({ bridge, fresh } = await joinHub(port, (m) => debug && io.err(`[loupe] ${m}`)));
-    const loupe = new Loupe(bridge);
+    if (!bridge) ({ bridge, fresh } = await joinHub(port, (m) => debug && io.err(`[lupa] ${m}`)));
+    const lupa = new Lupa(bridge);
     // A hub that just started has to wait for the plugin's reconnect backoff.
-    if (fresh) loupe.pluginWaitMs = 8_000;
-    io.out(await run(cmd, values, positionals, loupe));
+    if (fresh) lupa.pluginWaitMs = 8_000;
+    io.out(await run(cmd, values, positionals, lupa));
     return 0;
   } catch (e) {
     io.err(`Error: ${(e as Error).message}`);

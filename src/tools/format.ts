@@ -6,11 +6,11 @@ import type { FindMatch, OutlineNode, OutlineResult, PluginInfo, TokensResult } 
 export function formatStatus(plugins: PluginInfo[], role: string, port: number): string {
   if (!plugins.length) {
     return [
-      `Loupe ${role} on port ${port}. No Figma file connected.`,
-      "In Figma: open the file → Plugins → Development → Loupe (import plugin/manifest.json once). Keep the plugin window open.",
+      `Lupa ${role} on port ${port}. No Figma file connected.`,
+      "In Figma: open the file → Plugins → Development → Lupa (import plugin/manifest.json once). Keep the plugin window open.",
     ].join("\n");
   }
-  const lines = [`Loupe ${role} on port ${port}. Connected files (most recently active first):`];
+  const lines = [`Lupa ${role} on port ${port}. Connected files (most recently active first):`];
   for (const p of plugins) {
     lines.push(`- "${p.fileName}"${p.fileKey ? ` (key ${p.fileKey})` : ""} · page "${p.pageName}" · ${p.editorType} · plugin ${p.pluginVersion}`);
     if (p.hidden) lines.push("    Figma is in the background: screenshots and image exports wait until its window/tab is visible");

@@ -16,7 +16,7 @@ import { productCard } from "./scenes";
 const band = (x: number, y: number): [number, number, number] => (y >= 220 && y < 248 && x >= 24 && x < 336 ? [16, 24, 40] : [255, 255, 255]);
 /** The same drawing as `band`, as Figma's SVG export would give it. */
 const bandSvg = (w: number, h: number) => `<rect width="${w}" height="${h}" fill="#fff"/><rect x="24" y="220" width="312" height="28" fill="rgb(16,24,40)"/>`;
-const hasChromium = Boolean(process.env.LOUPE_BROWSER || cachedChromiums().length);
+const hasChromium = Boolean(process.env.LUPA_BROWSER || cachedChromiums().length);
 
 async function cli(args: string[], bridge?: Bridge) {
   const out: string[] = [];
@@ -27,7 +27,7 @@ async function cli(args: string[], bridge?: Bridge) {
 
 describe("cli without Figma", () => {
   it("prints usage and the format legend", async () => {
-    expect((await cli(["help"])).out).toContain("loupe <command> [target] [options]");
+    expect((await cli(["help"])).out).toContain("lupa <command> [target] [options]");
     expect((await cli(["format"])).out).toBe(FORMAT_LEGEND);
   });
 
@@ -55,7 +55,7 @@ describe("cli with Figma", () => {
   let dir: string;
 
   beforeAll(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "loupe-cli-"));
+    dir = await mkdtemp(path.join(tmpdir(), "lupa-cli-"));
     bridge = new Bridge({ port });
     await bridge.start();
     scene = productCard();
@@ -133,9 +133,9 @@ describe("cli with Figma", () => {
   it.skipIf(!hasChromium)("renderUrl reports design fonts the page can't use", async () => {
     const page = path.join(dir, "fonts.html");
     await writeFile(page, `<!doctype html><body style="margin:0"><p id="t" style="font-family:sans-serif">Hello</p></body>`);
-    const r = await renderUrl({ url: pathToFileURL(page).href, width: 200, selector: "#t", fonts: ["Loupe No Such Font"] });
+    const r = await renderUrl({ url: pathToFileURL(page).href, width: 200, selector: "#t", fonts: ["Lupa No Such Font"] });
     expect(r.png.subarray(1, 4).toString()).toBe("PNG");
-    expect(r.missingFonts).toEqual(["Loupe No Such Font"]);
+    expect(r.missingFonts).toEqual(["Lupa No Such Font"]);
   }, 60_000);
 
   it.skipIf(!hasChromium)("compare --url renders the page at the design's width", async () => {
@@ -174,7 +174,7 @@ describe("assets", () => {
     const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
     try {
       await hub.waitForPlugin(2000);
-      const dir = await mkdtemp(path.join(tmpdir(), "loupe-assets-"));
+      const dir = await mkdtemp(path.join(tmpdir(), "lupa-assets-"));
       const r = await cli(["assets", "-d", dir], hub);
       expect(r.out).toMatch(/^Wrote 1 file\(s\)/);
       expect(r.out).toMatch(/contact-info\.svg ← svg "Frame" #\S+ 16×16 \(used 3×; also for #\S+ #\S+\)/);
@@ -199,7 +199,7 @@ describe("assets", () => {
     const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
     try {
       await hub.waitForPlugin(2000);
-      const dir = await mkdtemp(path.join(tmpdir(), "loupe-assets-"));
+      const dir = await mkdtemp(path.join(tmpdir(), "lupa-assets-"));
       const r = await cli(["assets", "-d", dir], hub);
       expect(r.out).toMatch(/^Wrote 2 file\(s\)/);
       // Identical instances of one component: counted, not listed by id.
@@ -236,7 +236,7 @@ describe("design with an assets folder", () => {
     const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
     try {
       await hub.waitForPlugin(2000);
-      const dir = path.join(await mkdtemp(path.join(tmpdir(), "loupe-design-")), "icons");
+      const dir = path.join(await mkdtemp(path.join(tmpdir(), "lupa-design-")), "icons");
       const r = await cli(["design", "-d", dir], hub);
       expect(r.code).toBe(0);
       expect((await readdir(dir)).sort()).toEqual(["glyph-2.svg", "glyph.svg"]);
@@ -268,7 +268,7 @@ describe("hidden Figma window", () => {
       expect((await cli(["status"], peer)).out).toContain("Figma is in the background");
       await expect(hub.request("export", { ids: [card.id], format: "PNG" })).rejects.toThrow(HIDDEN_ERROR);
       // Screenshots fall back to the SVG export, which needs Chromium.
-      const r = await cli(["screenshot", "-o", path.join(tmpdir(), "loupe-hidden.png")], peer);
+      const r = await cli(["screenshot", "-o", path.join(tmpdir(), "lupa-hidden.png")], peer);
       if (hasChromium) {
         expect(r.code).toBe(0);
         expect(r.out).toContain("SVG export rendered in Chromium");
@@ -297,8 +297,8 @@ describe.skipIf(!hasChromium)("Figma not rendering", () => {
   let dir: string;
 
   beforeAll(async () => {
-    process.env.LOUPE_RASTER_WAIT_MS = "300";
-    dir = await mkdtemp(path.join(tmpdir(), "loupe-stall-"));
+    process.env.LUPA_RASTER_WAIT_MS = "300";
+    dir = await mkdtemp(path.join(tmpdir(), "lupa-stall-"));
     bridge = new Bridge({ port });
     await bridge.start();
     const { f, card } = productCard();
@@ -306,7 +306,7 @@ describe.skipIf(!hasChromium)("Figma not rendering", () => {
   });
 
   afterAll(async () => {
-    delete process.env.LOUPE_RASTER_WAIT_MS;
+    delete process.env.LUPA_RASTER_WAIT_MS;
     plugin.close();
     await bridge.close();
   });
@@ -337,7 +337,7 @@ describe.skipIf(!hasChromium)("Figma not rendering", () => {
 describe("bridge roles", () => {
   it("hub-only fails when the port is taken; peer-only fails without a hub", async () => {
     const port = 49000 + Math.floor(Math.random() * 1000);
-    await expect(new Bridge({ port, role: "peer" }).start()).rejects.toThrow(/No Loupe hub/);
+    await expect(new Bridge({ port, role: "peer" }).start()).rejects.toThrow(/No Lupa hub/);
     const hub = new Bridge({ port, role: "hub" });
     await hub.start();
     try {

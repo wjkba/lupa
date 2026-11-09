@@ -1,10 +1,10 @@
 # Landscape and design notes
 
-Researched in November 2026. This covers what exists for reading Figma designs into a coding agent, what plumb (the starting point of this repo) does well and badly, and why Loupe is built the way it is.
+Researched in November 2026. This covers what exists for reading Figma designs into a coding agent, what plumb (the starting point of this repo) does well and badly, and why Lupa is built the way it is.
 
 ## At a glance
 
-| | Loupe | Official Figma MCP | Framelink (Figma-Context-MCP) | plumb |
+| | Lupa | Official Figma MCP | Framelink (Figma-Context-MCP) | plumb |
 |---|---|---|---|---|
 | Interface | CLI + Claude Code skill (MCP optional) | MCP | MCP | MCP |
 | Source | Plugin API (live file) | Dev Mode MCP | REST API | Plugin API |
@@ -44,9 +44,9 @@ Problems found while reading the code and running the fixture:
 - **Weak socket security.** The WebSocket server does not check `Origin`, so any web page open in a browser on the same machine could connect.
 - **It writes.** It ships creation and editing tools, which this team does not want near production files.
 
-Verdict: the direction (plugin data → server-side normalization → compact text) is sound and is what Loupe keeps. The serialization format and the value conversions need to be redone, which is why Loupe is a rewrite rather than a fork.
+Verdict: the direction (plugin data → server-side normalization → compact text) is sound and is what Lupa keeps. The serialization format and the value conversions need to be redone, which is why Lupa is a rewrite rather than a fork.
 
-## Loupe's choices
+## Lupa's choices
 
 1. **Plugin API, not REST.** The plugin sees resolved instance overrides, bound variables with their code syntax, styled text segments, `getCSSAsync`, and exact exports. It needs no token, and Figma's REST rate limits do not apply.
 2. **Thin plugin, smart server.** The plugin sends a near-lossless snapshot. Every interpretation step (CSS conversion, tokens, components, folding, budget) is server-side TypeScript tested against a fake Plugin API. Fixing output does not require re-importing the plugin.
@@ -55,16 +55,16 @@ Verdict: the direction (plugin data → server-side normalization → compact te
 5. **A budget, spent breadth-first.** The agent sees the whole structure first. Cut subtrees are marked with the id to fetch next. Repeated siblings, including alternating zebra rows, fold into one pattern plus their content.
 6. **Exact values.** Gradients are converted analytically from the transform (verified pixel by pixel in tests). Blur is halved, letter-spacing converted, and per-side borders, stroke alignment, corner smoothing, image crop and filters are kept.
 7. **Close the loop visually.** Screenshots are sized for vision models and tiled. `compare_screenshot` renders Figma at the implementation's width, diffs the two, and names the Figma layers under each differing region.
-8. **CLI first, MCP optional.** Agents with a shell use the `loupe` command and a skill. Nothing sits in the context until Figma work starts, output can go to files, and humans can run the same commands. The MCP server shares the same implementation for clients without a shell.
+8. **CLI first, MCP optional.** Agents with a shell use the `lupa` command and a skill. Nothing sits in the context until Figma work starts, output can go to files, and humans can run the same commands. The MCP server shares the same implementation for clients without a shell.
 9. **Read-only by construction.** The protocol has no write methods. The socket is loopback-only, with an origin policy: browser origins other than Figma are rejected, and only Figma origins can act as the plugin.
 
 ## Measurements
 
-| Input | Raw | Loupe `get_design` |
+| Input | Raw | Lupa `get_design` |
 |---|---|---|
 | plumb's fixture dialog (21 nodes) | 15,364 chars REST JSON; plumb output 5,465 chars | 1,789 chars (≈560 tokens) as a readable tree |
 | Product card test scene | 19.4k chars plugin JSON | ≈870 tokens |
 | Synthetic 300-row table (3,903 nodes) | 1.83M chars plugin JSON | 1,261 tokens in 60 ms (zebra rows folded, each row's content listed) |
 | Real desktop screen (header, tabs, 8-row table, 6 components) | — | 10.6k chars (≈3.3k tokens) in one call, no cuts |
 
-How agents do with Loupe against the other tools, end to end: [bench/README.md](../bench/README.md).
+How agents do with Lupa against the other tools, end to end: [bench/README.md](../bench/README.md).

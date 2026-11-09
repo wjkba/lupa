@@ -1,7 +1,7 @@
 /// <reference types="@figma/plugin-typings" />
 
 /**
- * Loupe plugin — main thread.
+ * Lupa plugin — main thread.
  *
  * Read-only: it never edits the document. It answers requests relayed by the
  * UI iframe (which owns the WebSocket to the local MCP hub) and streams the
@@ -25,7 +25,7 @@ declare const PLUGIN_VERSION: string;
 // traversal of component-heavy files dramatically faster.
 figma.skipInvisibleInstanceChildren = true;
 
-figma.showUI(__html__, { width: 280, height: 148, themeColors: true, title: "Loupe" });
+figma.showUI(__html__, { width: 280, height: 148, themeColors: true, title: "Lupa" });
 
 function selection(): SelectionItem[] {
   return figma.currentPage.selection.slice(0, 25).map((n) => ({
@@ -90,7 +90,7 @@ figma.ui.onmessage = async (msg: { type?: string; id?: string; method?: string; 
   if (msg.type === "req" && msg.id && msg.method) {
     const handler = handlers[msg.method];
     try {
-      if (!handler) throw new Error(`Unknown method "${msg.method}" — update the Loupe plugin.`);
+      if (!handler) throw new Error(`Unknown method "${msg.method}" — update the Lupa plugin.`);
       const result = await handler(msg.params ?? {});
       figma.ui.postMessage({ type: "res", id: msg.id, ok: true, result });
     } catch (e) {

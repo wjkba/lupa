@@ -1,7 +1,7 @@
 /**
  * Screenshots of the implementation for compare: renders a URL in headless
  * Chromium through Playwright. Prefers the Playwright installed in the
- * project being worked on (its browsers are usually installed), then Loupe's
+ * project being worked on (its browsers are usually installed), then Lupa's
  * own playwright-core, and finds a browser even when the versions don't match.
  */
 
@@ -61,7 +61,7 @@ interface PwChromium {
 }
 
 const INSTALL_HINT =
-  "Install a browser with `npx playwright install chromium` (or install Google Chrome), or set LOUPE_BROWSER to a Chrome/Chromium executable. You can also pass a screenshot with --image.";
+  "Install a browser with `npx playwright install chromium` (or install Google Chrome), or set LUPA_BROWSER to a Chrome/Chromium executable. You can also pass a screenshot with --image.";
 
 async function loadChromium(): Promise<PwChromium> {
   const fromProject = createRequire(path.join(process.cwd(), "package.json"));
@@ -78,7 +78,7 @@ async function loadChromium(): Promise<PwChromium> {
     const mod = (await import("playwright-core")) as unknown as { chromium?: PwChromium; default?: { chromium: PwChromium } };
     return (mod.chromium ?? mod.default?.chromium)!;
   } catch {
-    throw new Error(`Rendering a URL needs Playwright: run \`npm install\` in the Loupe folder, or add playwright to your project. ${INSTALL_HINT}`);
+    throw new Error(`Rendering a URL needs Playwright: run \`npm install\` in the Lupa folder, or add playwright to your project. ${INSTALL_HINT}`);
   }
 }
 
@@ -114,7 +114,7 @@ export function cachedChromiums(): string[] {
 
 async function launch(chromium: PwChromium): Promise<PwBrowser> {
   const attempts: { executablePath?: string; channel?: string }[] = [];
-  if (process.env.LOUPE_BROWSER) attempts.push({ executablePath: process.env.LOUPE_BROWSER });
+  if (process.env.LUPA_BROWSER) attempts.push({ executablePath: process.env.LUPA_BROWSER });
   attempts.push({}, ...cachedChromiums().map((p) => ({ executablePath: p })), { channel: "chrome" });
   const errors: string[] = [];
   for (const a of attempts) {
@@ -184,7 +184,7 @@ export async function renderUrl(opts: RenderOptions): Promise<Rendered> {
  * while Figma isn't rendering.
  */
 export async function renderSvg(svg: string, o: { width: number; height: number; scale: number }): Promise<Buffer> {
-  const dir = path.join(os.tmpdir(), "loupe");
+  const dir = path.join(os.tmpdir(), "lupa");
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `render-${process.pid}-${Date.now()}.svg`);
   await writeFile(file, svg);

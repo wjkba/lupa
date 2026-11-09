@@ -1,7 +1,7 @@
 /**
  * The local bridge between MCP processes and the Figma plugin.
  *
- * The plugin connects to one fixed port. The first Loupe process to bind it
+ * The plugin connects to one fixed port. The first Lupa process to bind it
  * becomes the hub; any later process (a second Claude session, another
  * editor) connects to the hub as a peer and has its requests forwarded. If the
  * hub exits, peers race to take over the port and the plugin reconnects on
@@ -100,7 +100,7 @@ export class Bridge {
   private activeAt = Date.now();
 
   constructor(opts: BridgeOptions = {}) {
-    this.port = opts.port ?? Number(process.env.LOUPE_PORT ?? DEFAULT_PORT);
+    this.port = opts.port ?? Number(process.env.LUPA_PORT ?? DEFAULT_PORT);
     this.host = opts.host ?? "127.0.0.1";
     this.log = opts.log ?? (() => {});
     this.want = opts.role ?? "auto";
@@ -127,7 +127,7 @@ export class Bridge {
     if (this.heartbeat) clearInterval(this.heartbeat);
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
-      p.reject(new Error("Loupe is shutting down"));
+      p.reject(new Error("Lupa is shutting down"));
     }
     this.pending.clear();
     this.hubSocket?.close();
@@ -161,7 +161,7 @@ export class Bridge {
     const list = this.list();
     if (!list.length) {
       throw new Error(
-        "No Figma file is connected. Open the file in Figma (desktop app or browser) and run Plugins → Development → Loupe; keep its window open.",
+        "No Figma file is connected. Open the file in Figma (desktop app or browser) and run Plugins → Development → Lupa; keep its window open.",
       );
     }
     if (!target) return list[0]!;
@@ -235,15 +235,15 @@ export class Bridge {
   }
 
   private async elect(): Promise<void> {
-    if (this.want === "hub" && !(await this.tryListen())) throw new Error(`Port ${this.port} is in use (another Loupe hub is probably running).`);
-    if (this.want === "peer" && !(await this.tryConnect())) throw new Error(`No Loupe hub is running on port ${this.port}.`);
+    if (this.want === "hub" && !(await this.tryListen())) throw new Error(`Port ${this.port} is in use (another Lupa hub is probably running).`);
+    if (this.want === "peer" && !(await this.tryConnect())) throw new Error(`No Lupa hub is running on port ${this.port}.`);
     if (this.want !== "auto") return;
     for (let attempt = 0; attempt < 20 && !this.closed; attempt++) {
       if (await this.tryListen()) return;
       if (await this.tryConnect()) return;
       await new Promise((r) => setTimeout(r, 150 + Math.random() * 350));
     }
-    throw new Error(`Loupe could not bind or reach port ${this.port}. Is another program using it? Set LOUPE_PORT to change it (and the plugin's port).`);
+    throw new Error(`Lupa could not bind or reach port ${this.port}. Is another program using it? Set LUPA_PORT to change it (and the plugin's port).`);
   }
 
   private tryListen(): Promise<boolean> {
@@ -311,7 +311,7 @@ export class Bridge {
         this.peerPlugins = [];
         for (const [id, p] of this.pending) {
           clearTimeout(p.timer);
-          p.reject(new Error("Lost the connection to the Loupe hub; retry the call."));
+          p.reject(new Error("Lost the connection to the Lupa hub; retry the call."));
           this.pending.delete(id);
         }
         if (!this.closed) {
