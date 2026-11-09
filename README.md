@@ -1,4 +1,6 @@
-# Lupa
+<p align="center"><img src="docs/lupa.svg" width="112" height="112" alt=""></p>
+
+<h1 align="center">Lupa</h1>
 
 Lupa lets a coding agent read a Figma design and rebuild it faithfully. It is a CLI (`lupa`) plus a small Figma plugin, with an optional MCP server. It is **read-only**: the plugin never edits the file.
 
