@@ -73,6 +73,7 @@ bench/score.sh "<figma url>" /tmp/lupa-bench/<name>-*-*   # with the Lupa plugin
 - **Where runs go.** Runs go to `$BENCH_OUT` (default `/tmp/lupa-bench`), outside the repo, so agents can't read Lupa's code. Don't commit them: they contain the design.
 - **Re-running.** Running the same command again redoes only the failed runs. At the account's usage limit, no new runs start and the script prints when to retry.
 - **Order.** Lupa configs run one after another because they share the plugin. Keep Figma's window visible, or its PNG exports stall.
-- **Options.** `MODEL` (default `claude-opus-5-5`) and `BUDGET` (USD per run, default 10) pass through. `bench/run.sh <config> <dir> "<url>"` runs a single config.
+- **Options.** `MODEL` (default `claude-opus-5-5`) and `BUDGET` (USD per run, default 10) pass through. `TASK_NOTE` appends screen-specific instructions to the prompt. `bench/run.sh <config> <dir> "<url>"` runs a single config.
+- **In an existing project.** `SEED=<project dir>` copies that project into each run and asks the agent to build the page with its tokens, components and icons. `python3 bench/reuse.py --seed <project dir> <runs…>` then counts what each run reused: project tokens, classes and icons, versus colour literals and new SVG files.
 - **Scoring output.** `score.sh` writes `compare.txt`, `compare.png` and `score-text.json` into each run and prints the table. To print it again, run `python3 bench/analyze.py --table <runs…>`. Without `--table`, `analyze.py` prints JSON per run.
 - **Tool lists.** `node bench/listtools.mjs <command> <args…>` lists an MCP server's tools with their read-only annotations.

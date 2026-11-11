@@ -2,11 +2,12 @@
 # One isolated benchmark run: bench/run.sh <config> <run-dir> <figma-url> [model]
 # config: official | framelink | figwright | lupa-read | lupa-full
 # Each run sees exactly one Figma tool, read-only tools only (dontAsk + allow-list),
-# and works in an empty directory outside the Lupa repo.
+# and works in an empty directory outside the Lupa repo, or in a copy of SEED (an existing
+# project whose tokens, components and icons the page should reuse).
 set -euo pipefail
 CONFIG=$1; DIR=$2; URL=$3; MODEL=${4:-claude-opus-5-5}
 B=$(cd "$(dirname "$0")" && pwd)
-mkdir -p "$DIR"; cd "$DIR"
+mkdir -p "$DIR"; [ -n "${SEED:-}" ] && cp -r "$SEED"/. "$DIR"; cd "$DIR"
 
 BASE=(Read Write Edit Glob Grep ToolSearch "Bash(mkdir *)" "Bash(ls *)" "Bash(curl *)" "Bash(file *)")
 # No user hooks: a hook that rewrites commands (e.g. rtk turning `curl` into `rtk curl`) makes them miss the allow-list.
@@ -47,6 +48,13 @@ esac
 PROMPT="Implement the Figma frame at $URL as a static web page, as faithfully as you can: exact layout, sizes, spacing, colours, typography and icons.
 Write it to ./index.html (plain HTML + CSS, no build step; put any downloaded assets under ./assets/). The frame's root element must have id=\"root\" and exactly the frame's size.
 Read the design only with $TOOLNAME. Stay inside the current directory. Work autonomously and finish with the single line: DONE."
+[ -n "${SEED:-}" ] && PROMPT="This directory is an existing front-end project: read its README first. Implement the Figma frame at $URL as a new page of it, ./index.html, as faithfully as you can: exact layout, sizes, spacing, colours, typography and icons.
+Build it the way this project builds pages: reuse its tokens, components and icons wherever they match the design, and add new ones in the same style only where nothing fits. No build step; put downloaded images under ./assets/. The frame's root element must have id=\"root\" and exactly the frame's size.
+Read the design only with $TOOLNAME. Stay inside the current directory. Work autonomously and finish with the single line: DONE."
+# TASK_NOTE adds screen-specific instructions, e.g. a related component set to build once.
+[ -n "${TASK_NOTE:-}" ] && PROMPT="$PROMPT
+
+$TASK_NOTE"
 
 [ -n "${SMOKE:-}" ] && PROMPT="Do not implement anything. 1) Use ToolSearch with query \"figma\" (max_results 50) and list every tool name it returns. 2) Say which skills you have whose names contain figma. 3) Try to call the Skill tool with skill figma-implement and report whether it was allowed. 4) Try running the shell command: lupa status, and report whether it was allowed. Keep the answer short."
 export ENABLE_CLAUDEAI_MCP_SERVERS=false

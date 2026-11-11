@@ -5,7 +5,7 @@
 # skipped, so re-running resumes (and redoes failed ones). Non-Lupa configs run in parallel. Lupa configs run one after
 # another, because they share the plugin (and alongside the parallel ones).
 # Figma runs one plugin per file: figwright can't share an invocation with lupa-* configs.
-# MODEL and BUDGET are passed through to run.sh.
+# MODEL, BUDGET, TASK_NOTE and SEED (a project to build the page in) are passed through to run.sh.
 set -uo pipefail
 B=$(cd "$(dirname "$0")" && pwd)
 if [ $# -lt 4 ]; then sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2; fi
