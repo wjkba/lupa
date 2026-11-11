@@ -152,8 +152,14 @@ export function isGraphic(node: AnyNode, ctx: Ctx): boolean {
     // A styled box (badge, icon button) stays a box: its fill and radius are CSS.
     if (type === "FRAME" && hasOwnSurface(node)) return false;
     const kids = (get<readonly SceneNode[]>(node, "children") ?? []).filter((k) => get(k as AnyNode, "visible") !== false);
-    // A row of icons keeps its layout; each icon collapses on its own.
-    if (get(node, "layoutMode") && get(node, "layoutMode") !== "NONE" && kids.length > 1) return false;
+    const flow = get(node, "layoutMode") && get(node, "layoutMode") !== "NONE";
+    // A row of icons keeps its layout; each icon collapses on its own. So does a layout around
+    // one icon instance: the instance is the icon, and the wrapper may hold layers hidden here
+    // (an instance's sublayers turned off aren't returned at all).
+    if (flow && (kids.length > 1 || (kids.length === 1 && kids[0]!.type === "INSTANCE"))) return false;
+    // So does a layout whose text is hidden here (an instance's count turned off): it is a container.
+    const all = get<readonly SceneNode[]>(node, "children") ?? [];
+    if (flow && all.some((k) => get(k as AnyNode, "visible") === false && !graphicScan(k as AnyNode, ctx).pure)) return false;
   }
   return true;
 }

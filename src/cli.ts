@@ -33,6 +33,8 @@ Read
       --depth N  --hidden  --vectors
       -d DIR              also write the icons and images there; layers name their file
       --current-color     with -d: monochrome icons use currentColor
+      --project DIR       codebase whose colour/font variables, icons and components
+                          to point at (default: current folder; none: off)
       --screenshot        also render a PNG of the target and print its path
   screenshot [target]   Render to PNG(s) sized for vision; prints the file paths
       -o PATH  --scale N  --full PATH (also save the full-resolution PNG)
@@ -47,7 +49,7 @@ Read
 Verify
   compare [target]      Pixel-diff your implementation against Figma; lists the differing
                         layers and writes a design | implementation | diff image
-      --url URL [--selector CSS] [--wait-for CSS]   render your running page at the design's width
+      --url URL [--selector CSS] [--wait-for CSS]   render your running page (or a file:// page, served locally) at the design's width
       --image PNG                                   or use a screenshot you took
       --threshold N (0–1, default 0.1)  -o PATH
 
@@ -74,6 +76,7 @@ const SPECS: Record<string, OptionSpec> = {
     vectors: { type: "boolean" },
     dir: { type: "string", short: "d" },
     "current-color": { type: "boolean" },
+    project: { type: "string" },
     screenshot: { type: "boolean" },
   },
   screenshot: { out: { type: "string", short: "o" }, scale: { type: "string" }, full: { type: "string" } },
@@ -152,6 +155,7 @@ async function run(cmd: string, v: Values, pos: string[], lupa: Lupa): Promise<s
         expandVectors: v.vectors === true,
         assetsDir: str(v, "dir"),
         currentColor: v["current-color"] === true,
+        project: str(v, "project") === "none" ? false : str(v, "project"),
       });
       if (v.screenshot !== true) return text;
       return `${text}\n\n## screenshot\n${deliver(await lupa.screenshot({ target, file }), undefined, "screenshot")}`;

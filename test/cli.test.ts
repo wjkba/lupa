@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -138,6 +138,17 @@ describe("cli with Figma", () => {
     expect(r.missingFonts).toEqual(["Lupa No Such Font"]);
   }, 60_000);
 
+  it.skipIf(!hasChromium)("renderUrl serves a file:// page over HTTP, so its ES modules run", async () => {
+    await mkdir(path.join(dir, "served"), { recursive: true });
+    const page = path.join(dir, "served", "module.html");
+    await writeFile(page, `<!doctype html><body style="margin:0"><script type="module" src="./app.js"></script></body>`);
+    await writeFile(path.join(dir, "served", "app.js"), `document.body.innerHTML = '<div id="t" style="width:20px;height:20px;background:red"></div>';`);
+    const r = await renderUrl({ url: pathToFileURL(page).href, width: 100, selector: "#t" });
+    expect(r.png.subarray(1, 4).toString()).toBe("PNG");
+    const missing = path.join(dir, "served", "missing.html");
+    await expect(renderUrl({ url: pathToFileURL(missing).href, width: 100 })).rejects.toThrow(`${missing} does not exist`);
+  }, 60_000);
+
   it.skipIf(!hasChromium)("compare --url renders the page at the design's width", async () => {
     const page = path.join(dir, "page.html");
     await writeFile(
@@ -169,6 +180,10 @@ describe("assets", () => {
         { type: "FRAME", name: "Contact Info", w: 120, h: 16, children: [icon("Frame"), label("Phone")] },
         { type: "FRAME", name: "Row", w: 120, h: 16, y: 40, children: [icon("Frame 810"), label("Emma")] },
         { type: "FRAME", name: "Row", w: 120, h: 16, y: 70, children: [icon("Frame 811"), label("Marcus")] },
+        // An unnamed field: its icon goes by the text beside it.
+        { type: "FRAME", name: "Frame 9", w: 120, h: 16, y: 90, children: [{ ...icon("Frame"), children: [{ type: "ELLIPSE", w: 10, h: 10, x: 2, y: 2, arcData: { startingAngle: 0, endingAngle: 3, innerRadius: 0.5 }, fills: [solid("#000000")] }] }, label("Search")] },
+        // A count says nothing about the icon, nor does a variant's name: the nearest real name does.
+        { type: "FRAME", name: "State=Open", w: 120, h: 16, y: 120, children: [{ type: "FRAME", name: "Frame 12", w: 120, h: 16, children: [label("3/4"), { ...icon("Frame"), w: 20, h: 20 }] }] },
       ],
     });
     const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
@@ -176,9 +191,9 @@ describe("assets", () => {
       await hub.waitForPlugin(2000);
       const dir = await mkdtemp(path.join(tmpdir(), "lupa-assets-"));
       const r = await cli(["assets", "-d", dir], hub);
-      expect(r.out).toMatch(/^Wrote 1 file\(s\)/);
+      expect(r.out).toMatch(/^Wrote 3 file\(s\)/);
       expect(r.out).toMatch(/contact-info\.svg ← svg "Frame" #\S+ 16×16 \(used 3×; also for #\S+ #\S+\)/);
-      expect(await readdir(dir)).toEqual(["contact-info.svg"]);
+      expect((await readdir(dir)).sort()).toEqual(["contact-info.svg", "screen.svg", "search.svg"]);
     } finally {
       ws.close();
       await hub.close();
@@ -247,6 +262,50 @@ describe("design with an assets folder", () => {
       expect(defs).toMatch(/svg "Glyph" .*src:\S+\/glyph\.svg/);
       expect(tree).not.toContain("glyph.svg");
       expect(tree).toContain(`#${odd.id} 64×32\n    ~ Glyph: src:${dir}/glyph-2.svg; color:#b42318`);
+    } finally {
+      ws.close();
+      await hub.close();
+    }
+  });
+
+  it("points at the project's own icons, colour variables and components", async () => {
+    const port = 47000 + Math.floor(Math.random() * 2000);
+    const hub = new Bridge({ port });
+    await hub.start();
+    const f = new FakeFile();
+    const field = f.component({
+      name: "Search field",
+      w: 120,
+      h: 32,
+      fills: [solid("#edf0ee")],
+      children: [
+        { type: "VECTOR", name: "Glyph", w: 16, h: 16, x: 8, y: 8, fills: [solid("#aeb0af")] },
+        { type: "TEXT", name: "Placeholder", text: "Search", w: 60, h: 16, x: 32, y: 8, fills: [solid("#aeb0af")] },
+      ],
+    });
+    const screen = f.node({ type: "FRAME", name: "Toolbar", w: 260, h: 32, layoutMode: "HORIZONTAL", itemSpacing: 8, children: [] });
+    f.instance(field, screen);
+    f.instance(field, screen);
+    const ws = await connectFakePlugin({ port, file: f, fileName: "Icons", selection: [screen.id] });
+    const root = await mkdtemp(path.join(tmpdir(), "lupa-project-"));
+    const rel = (p: string) => path.relative(process.cwd(), path.join(root, p));
+    try {
+      await hub.waitForPlugin(2000);
+      await mkdir(path.join(root, "icons"), { recursive: true });
+      // The fake export draws "M0 0h1v1z" at the layer's size: the same drawing at 24px, in another colour.
+      await writeFile(path.join(root, "icons/glass.svg"), '<svg viewBox="0 0 24 24" fill="none"><path d="M0 0H1.5V1.5Z" stroke="currentColor"/></svg>');
+      await writeFile(path.join(root, "search.css"), ":root { --color-field: #EDF0EE; } .search-field { background: var(--color-field); }");
+      const dir = path.join(root, "assets");
+      const r = await cli(["design", "-d", dir, "--project", root], hub);
+      expect(r.code).toBe(0);
+      expect(existsSync(dir) ? await readdir(dir) : []).toEqual([]);
+      expect(r.out).toContain(`assets: 0 files in ${dir}/ + 1 icon the project already has`);
+      expect(r.out).toContain(`src:${rel("icons/glass.svg")}`);
+      expect(r.out).toContain(`#edf0ee → var(--color-field)`);
+      expect(r.out).toContain(`// project has: .search-field (${rel("search.css")})`);
+      // Off when asked.
+      const off = await cli(["design", "--project", "none"], hub);
+      expect(off.out).not.toContain("→ var(");
     } finally {
       ws.close();
       await hub.close();

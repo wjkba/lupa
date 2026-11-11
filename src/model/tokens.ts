@@ -24,6 +24,9 @@ interface NamedToken {
 
 const MARK = "\u0001";
 
+/** " → a · b": the codebase's own names for a value. */
+const arrow = (refs: string[]) => (refs.length ? ` → ${refs.slice(0, 3).join(" · ")}` : "");
+
 export function tokenName(name: string): string {
   return name.trim().replace(/\s*\/\s*/g, "/").replace(/\s+/g, "-");
 }
@@ -33,6 +36,8 @@ export class Registry {
   private readonly varNames = new Map<string, string>();
   private readonly typo = new Map<string, { id: string; spec: string }>();
   private readonly effects = new Map<string, { idx: number; css: string; uses: number; id?: string }>();
+  /** Typography ref → line heights measured on one-line texts, for "normal" line heights. */
+  private readonly lineHeights = new Map<string, Map<number, number>>();
   private typoSeq = 0;
   private finalized = false;
 
@@ -107,6 +112,29 @@ export class Registry {
     return id;
   }
 
+  /** One line of a text set in `ref` renders `px` tall in Figma. */
+  measure(ref: string, px: number): void {
+    const key = ref.split("=")[0]!;
+    const seen = this.lineHeights.get(key) ?? new Map<number, number>();
+    const v = Math.round(px * 100) / 100;
+    seen.set(v, (seen.get(v) ?? 0) + 1);
+    this.lineHeights.set(key, seen);
+  }
+
+  /**
+   * "14/normal" → "14/normal≈17", and "14/135%" → "14/135%≈19" where Figma's rounding differs
+   * from the exact 18.9: the most common measured height.
+   */
+  private withLineHeight(key: string, spec: string): string {
+    const seen = this.lineHeights.get(key);
+    if (!seen) return spec;
+    const px = [...seen.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+    if (/\/normal\b/.test(spec)) return spec.replace(/\/normal\b/, `/normal≈${n(px)}`);
+    const pct = /(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)%/.exec(spec);
+    if (!pct || Math.abs((Number(pct[1]) * Number(pct[2])) / 100 - px) < 0.05) return spec;
+    return spec.replace(pct[0], `${pct[0]}≈${n(px)}`);
+  }
+
   /** Effects: named style, else a placeholder resolved after counting uses. */
   effect(css: string, styleId?: string): string {
     if (styleId) {
@@ -146,16 +174,24 @@ export class Registry {
   }
 
   /** The token table for the references that made it into the output. */
-  table(used: Set<string>): string[] {
+  table(used: Set<string>, project?: { color(hex: string): string[]; text(spec: string): string[] }): string[] {
     this.finalize();
     const lines: string[] = [];
     const groups: Record<string, string[]> = { color: [], paint: [], number: [], type: [], effect: [] };
     for (const [key, t] of this.named) {
       if (!used.has(key)) continue;
       const extra = [t.web, t.note ? `— ${t.note.replace(/\s+/g, " ").slice(0, 80)}` : ""].filter(Boolean).join(" ");
-      groups[t.kind]!.push(`  ${key} = ${t.value}${extra ? `  ${extra}` : ""}`);
+      const value = t.kind === "type" ? this.withLineHeight(key, t.value) : t.value;
+      let refs: string[] = [];
+      if (project && t.kind === "color") refs = project.color(t.value);
+      if (project && t.kind === "type") refs = project.text(value);
+      groups[t.kind]!.push(`  ${key} = ${value}${arrow(refs)}${extra ? `  ${extra}` : ""}`);
     }
-    for (const t of this.typo.values()) if (used.has(t.id)) groups.type!.push(`  ${t.id} = ${t.spec}`);
+    for (const t of this.typo.values()) {
+      if (!used.has(t.id)) continue;
+      const spec = this.withLineHeight(t.id, t.spec);
+      groups.type!.push(`  ${t.id} = ${spec}${arrow(project?.text(spec) ?? [])}`);
+    }
     for (const e of this.effects.values()) if (e.id && used.has(e.id)) groups.effect!.push(`  ${e.id} = ${e.css}`);
     const titles: Record<string, string> = {
       color: "colors",

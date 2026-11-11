@@ -143,10 +143,11 @@ export class Components {
     for (const child of a.children) {
       let dc = defByKey.get(keyOf(child, false));
       if (!dc) {
-        // Positional fallback (detached ids, re-created layers).
-        const idx = a.children.indexOf(child);
-        const cand = d.children[idx];
-        if (cand && !matched.has(cand) && cand.name === child.name && cand.type === child.type) dc = cand;
+        // Fallback by name and type, same position first: detached ids, re-created layers, and
+        // a library component, whose instances keep the library's ids while its local copy has new ones.
+        const ok = (c: IRNode | undefined): c is IRNode => !!c && !matched.has(c) && c.name === child.name && c.type === child.type;
+        const cand = d.children[a.children.indexOf(child)];
+        dc = ok(cand) ? cand : d.children.find(ok);
       }
       const p = joinPath(path, dc ? names.get(dc) ?? dc.name : child.name);
       if (!dc) {
@@ -226,7 +227,9 @@ export class Components {
       changes.push(...mapDiff(a.inst.props, d.inst.props, "="));
     }
     if (a.text !== undefined && a.text !== d.text && !d.propRefs?.characters) changes.push(JSON.stringify(a.text));
-    changes.push(...mapDiff(a.layout, d.layout), ...mapDiff(a.style, d.style));
+    // An emptied text has no style runs left to read its font or colour from.
+    const emptied = a.text === "" && d.text !== "";
+    changes.push(...mapDiff(a.layout, d.layout), ...(emptied ? [] : mapDiff(a.style, d.style)));
     if (!resized) {
       // A resized instance reflows; only fixed-size sublayers report their own size change.
       const wFixed = !a.geo.w && !d.geo.w && !/left\+right|scale-x/.test(a.geo.pin ?? "");
@@ -252,7 +255,8 @@ export function mapDiff(a: Record<string, string>, b: Record<string, string>, se
 
 /**
  * Display names for siblings, disambiguated with `[n]` when names repeat.
- * Default names ("Frame 517") are hidden on definition lines, so those layers go by their id.
+ * Default names ("Frame 517") are hidden on definition lines, so those layers go by their
+ * id, and so do names containing "/", the path separator.
  */
 function pathNames(nodes: IRNode[]): Map<IRNode, string> {
   const counts = new Map<string, number>();
@@ -260,7 +264,7 @@ function pathNames(nodes: IRNode[]): Map<IRNode, string> {
   const seen = new Map<string, number>();
   const out = new Map<IRNode, string>();
   for (const c of nodes) {
-    if (isDefaultName(c.name)) out.set(c, `#${c.id}`);
+    if (isDefaultName(c.name) || c.name.includes("/")) out.set(c, `#${c.id}`);
     else if ((counts.get(c.name) ?? 0) > 1) {
       const i = (seen.get(c.name) ?? 0) + 1;
       seen.set(c.name, i);
@@ -270,6 +274,7 @@ function pathNames(nodes: IRNode[]): Map<IRNode, string> {
   return out;
 }
 
+/** An id is unique in the definition, so it needs no parent path. */
 function joinPath(a: string, b: string): string {
-  return a ? `${a}/${b}` : b;
+  return a && !b.startsWith("#") ? `${a}/${b}` : b;
 }

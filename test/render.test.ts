@@ -160,3 +160,86 @@ describe("instance overrides", () => {
     expect(out).toContain(`~ #${tab.children[0].id}/Count: "7"`);
   });
 });
+
+describe("inside borders", () => {
+  it("print padding and positions that land the content where Figma draws it under CSS border-box", async () => {
+    const f = new FakeFile();
+    const label = { type: "TEXT", name: "Title", text: "Title", w: 100, h: 17, fills: [solid("#000000")] };
+    const border = { strokes: [solid("#000000")], strokeWeight: 1 };
+    const pads = { paddingTop: 18, paddingRight: 16, paddingBottom: 24, paddingLeft: 16 };
+    const root = f.node({
+      type: "FRAME",
+      name: "Cards",
+      w: 400,
+      h: 400,
+      children: [
+        { type: "FRAME", name: "Card", w: 200, h: 59, layoutMode: "VERTICAL", ...pads, ...border, children: [{ ...label }] },
+        { type: "FRAME", name: "Counted", y: 100, w: 200, h: 61, layoutMode: "VERTICAL", ...pads, ...border, strokesIncludedInLayout: true, children: [{ ...label }] },
+        { type: "FRAME", name: "Free", y: 200, w: 200, h: 100, ...border, children: [{ ...label, x: 10, y: 10 }] },
+      ],
+    });
+    const snap = await snapshot(f.api, [root], { ids: [root.id] }, { fileName: "Cards", pageName: "Home" });
+    const { text } = renderSnapshot(snap, { components: "auto", budget: 10000 });
+    expect(line(text, 'frame "Card"')).toContain("p:17,15,23");
+    expect(line(text, 'frame "Counted"')).toContain("p:18,16,24");
+    expect(text).toMatch(/frame "Free"[^\n]*\n\s+text[^\n]*at:9,9/);
+  });
+});
+
+describe("fixed sizes", () => {
+  it("say when auto-layout content runs past a fixed size, which CSS would grow to fit", async () => {
+    const f = new FakeFile();
+    const label = (h: number) => ({ type: "TEXT", name: "Label", text: "Label", w: 100, h, textAutoResize: "HEIGHT", fills: [solid("#000000")] });
+    const root = f.node({
+      type: "FRAME",
+      name: "Sections",
+      w: 400,
+      h: 400,
+      layoutMode: "VERTICAL",
+      children: [
+        { type: "FRAME", name: "Tight", w: 200, h: 38, layoutMode: "VERTICAL", itemSpacing: 4, primaryAxisAlignItems: "CENTER", children: [label(17), label(19)] },
+        { type: "FRAME", name: "Roomy", w: 200, h: 48, layoutMode: "VERTICAL", itemSpacing: 4, children: [label(17), label(19)] },
+        { type: "FRAME", name: "Short row", w: 200, h: 16, layoutMode: "HORIZONTAL", paddingTop: 2, children: [label(17)] },
+      ],
+    });
+    const snap = await snapshot(f.api, [root], { ids: [root.id] }, { fileName: "Sections", pageName: "Home" });
+    const { text } = renderSnapshot(snap, { components: "auto", budget: 10000 });
+    expect(line(text, 'frame "Tight"')).toContain("h:fixed(content 40)");
+    expect(line(text, 'frame "Roomy"')).not.toContain("fixed");
+    expect(line(text, 'frame "Short row"')).toContain("h:fixed(content 19)");
+    expect(line(text, 'frame "Sections"')).not.toContain("fixed");
+  });
+});
+
+describe("line heights", () => {
+  it("adds what Figma renders auto and rounded percent line heights at", async () => {
+    const f = new FakeFile();
+    const body = (text: string, h: number, auto: "HEIGHT" | "WIDTH_AND_HEIGHT", lineHeight: object) => ({
+      type: "TEXT",
+      text,
+      w: 300,
+      h,
+      textAutoResize: auto,
+      fills: [solid("#000000")],
+      font: { fontSize: 14, lineHeight },
+    });
+    const root = f.node({
+      type: "FRAME",
+      name: "Notes",
+      w: 320,
+      h: 200,
+      children: [
+        body("One line", 17, "WIDTH_AND_HEIGHT", { unit: "AUTO" }),
+        // 14px × 135% = 18.9, but Figma rounds each line: four lines are 76 tall, not 75.6.
+        { ...body("A paragraph that wraps onto four lines", 76, "HEIGHT", { unit: "PERCENT", value: 135 }), font: { fontSize: 14, fontWeight: 500, fontName: { family: "Inter", style: "Medium" }, lineHeight: { unit: "PERCENT", value: 135 } } },
+        // 16px × 150% = 24 exactly: nothing to add.
+        { ...body("Exact", 24, "WIDTH_AND_HEIGHT", { unit: "PERCENT", value: 150 }), font: { fontSize: 16, lineHeight: { unit: "PERCENT", value: 150 } } },
+      ],
+    });
+    const snap = await snapshot(f.api, [root], { ids: [root.id] }, { fileName: "Notes", pageName: "Home" });
+    const { text } = renderSnapshot(snap, { components: "auto", budget: 10000 });
+    expect(text).toMatch(/Inter 400 14\/normal≈17\n/);
+    expect(text).toMatch(/Inter 500 14\/135%≈19\n/);
+    expect(text).toMatch(/Inter 400 16\/150%\n/);
+  });
+});

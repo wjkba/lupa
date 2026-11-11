@@ -6,15 +6,16 @@
 export const FORMAT_LEGEND = `get_design format — one line per layer, children indented:
   <kind> ["name"] #id W×H props…   kinds: frame group section component set instance text svg img rect ellipse line
   Props are CSS-like, separated by "; ". A bare word is a flag.
-  Size: W×H are px. w:/h: fill|hug (bare "fill"/"hug" = both axes); no w/h = fixed. Instances say w:fixed/h:fixed (or bare "fixed") where their component hugs. minw/maxw/minh/maxh.
+  Size: W×H are px. w:/h: fill|hug (bare "fill"/"hug" = both axes); no w/h = fixed. Instances say w:fixed/h:fixed (or bare "fixed") where their component hugs. h:fixed(content N) = a fixed box its N px content overflows: set the size anyway; justify places the spill. minw/maxw/minh/maxh.
   Flow (auto layout): row|col|grid, gap, rowgap, wrap, p (CSS padding shorthand, commas), justify (center|end|between), align (center|end|baseline). Children of a flow parent are positioned by the flow.
   Free position: at:x,y = CSS left/top inside the parent; abs = absolutely positioned inside a flow parent; pin:right|bottom|center-x|left+right… = constraints (how it moves when the parent resizes); rotate:<deg> (CSS sign).
-  Style: bg (CSS background, topmost layer first), border:<width> [dashed(…)] <color> [outside|center] (default inside → box-sizing: border-box), radius (full = pill), smooth (corner smoothing), shadow/text-shadow (CSS), blur/backdrop (CSS blur() radius, already halved from Figma), opacity, blend, clip (overflow hidden), mask.
+  Style: bg (CSS background, topmost layer first), border:<width> [dashed(…)] <color> [outside|center] (default inside → box-sizing: border-box; p and at: already count from inside it), radius (full = pill), smooth (corner smoothing), shadow/text-shadow (CSS), blur/backdrop (CSS blur() radius, already halved from Figma), opacity, blend, clip (overflow hidden), mask.
   img: src:<hash> cover|contain|crop|tile. svg: vector graphic; color: its fill. With an assets folder (assets_dir, CLI -d), src: is the file written for that layer; otherwise export_assets writes them.
-  Text: font:<token>; color; text-align; valign; ellipsis; content last as a JSON string. "~" lines under text = styled runs that differ from the base style.
+  Text: font:<token>; color; text-align; valign; ellipsis; content last as a JSON string. "~" lines under text = styled runs that differ from the base style. In a typography token, "≈17" after a line height (normal≈17, 135%≈19) = what Figma renders it at, measured: write line-height 17px.
   $name = design token (Figma variable/style); see "## tokens". T1, E1 = repeated typography/effect values listed there. "$name=value" = token bound but resolved to another value here (mode/override).
   Components: "## components" prints each repeated component once. "instance Name{Variant=…} Prop=value" uses it; "~ path: changes" lines list only what that instance overrides (path = layer names, or #id for unnamed layers of the definition).
   "+N more like ↑" / "+N more alternating like the 2 above" = siblings with the same structure as the layer(s) just printed; the lines under it give each one's id and its own texts/images.
   "… +N layers not shown → get_design #id" = cut by the token budget; fetch that subtree when you need it.
   // lines = designer notes, prototype interactions, component props, exports.
+  Codebase: "→ var(--x)" after a colour or font = the project's own variable for that value; "→ .class" after a typography token = its text style class. "// project has: …" = where the project defines that component. A src: outside the assets folder = the project's own icon with the same drawing.
 Reproduce exact values (sizes, spacing, colours, type). Before writing any colour, $token or raw (#hex, rgba), look for the codebase's own token with that name or value (Tailwind theme, CSS variables, theme object) and use it; hardcode only when none matches.`;
