@@ -85,6 +85,89 @@ export function isDefaultName(name: string): boolean {
   return DEFAULT_NAME.test(name.trim());
 }
 
+/** A text layer still named after its content (Figma's default). */
+export function sameText(name: string, text: string): boolean {
+  const a = name.replace(/\s+/g, " ").trim();
+  const b = text.replace(/\s+/g, " ").trim();
+  return a === b || (a.length >= 8 && b.startsWith(a.replace(/…$/, "")));
+}
+
+/** Figma's default purple outline around a component set's variants: editor chrome, not design. */
+export function isSetOutline(p: RawPaint): boolean {
+  return p.type === "SOLID" && p.visible !== false && !!p.color && [p.color.r, p.color.g, p.color.b].map((c) => Math.round(c * 255)).join() === "151,71,255";
+}
+
+/**
+ * Border widths (top, right, bottom, left) of a frame's inside stroke that Figma draws over its
+ * padding without moving the content; undefined when the stroke takes room or there is none.
+ * A component set's outline is editor chrome that the output leaves out: it moves nothing.
+ */
+function insideBorder(raw: RawNode): [number, number, number, number] | undefined {
+  if (raw.graphic || raw.type === "LINE" || raw.type === "TEXT" || !raw.children?.length) return undefined;
+  if (raw.type === "COMPONENT_SET" && visible(raw.strokes).some(isSetOutline)) return undefined;
+  if (!visible(raw.strokes).length || (raw.strokeAlign ?? "INSIDE") !== "INSIDE" || raw.strokesIncludedInLayout) return undefined;
+  const u = raw.strokeWeight ?? 1;
+  const w: [number, number, number, number] = [raw.strokeTopWeight ?? u, raw.strokeRightWeight ?? u, raw.strokeBottomWeight ?? u, raw.strokeLeftWeight ?? u];
+  return w.some((x) => x > 0) ? w : undefined;
+}
+
+/**
+ * The size of a frame's auto-layout content on one axis when it runs past the frame's fixed size,
+ * else 0. CSS grows a box to its content unless told its size, so such a box needs saying.
+ */
+function overflow(raw: RawNode, axis: "w" | "h"): number {
+  if (raw.graphic || raw.childCount || raw.layoutWrap || (raw.layoutMode !== "HORIZONTAL" && raw.layoutMode !== "VERTICAL")) return 0;
+  const kids = (raw.children ?? []).filter((k) => k.visible !== false && k.layoutPositioning !== "ABSOLUTE");
+  if (!kids.length) return 0;
+  const h = axis === "h";
+  const pad = h ? (raw.paddingTop ?? 0) + (raw.paddingBottom ?? 0) : (raw.paddingLeft ?? 0) + (raw.paddingRight ?? 0);
+  const size = (k: RawNode) => (h ? k.h : k.w);
+  const main = (raw.layoutMode === "VERTICAL") === h;
+  const gap = raw.primaryAxisAlignItems === "SPACE_BETWEEN" ? 0 : (raw.itemSpacing ?? 0);
+  const content = pad + (main ? kids.reduce((a, k) => a + size(k), 0) + gap * (kids.length - 1) : Math.max(...kids.map(size)));
+  return content - (h ? raw.h : raw.w) > 0.5 ? content : 0;
+}
+
+/** Children fill the grid's cells in order, row by row: CSS auto-placement puts them there. */
+function autoFlow(raw: RawNode): boolean {
+  const cols = raw.gridColumnCount ?? raw.gridColumnSizes?.length ?? 0;
+  const kids = (raw.children ?? []).filter((k) => k.visible !== false && k.layoutPositioning !== "ABSOLUTE");
+  return (
+    cols > 0 &&
+    kids.every(
+      (k, i) => !k.gridRowSpan && !k.gridColumnSpan && k.gridColumnAnchorIndex === i % cols && k.gridRowAnchorIndex === Math.floor(i / cols),
+    )
+  );
+}
+
+/**
+ * Figma sizes a hug track that no child occupies (an empty last row), where CSS `auto`
+ * would collapse it to 0. Give such tracks their measured size: the frame's room left over.
+ */
+function emptyTracks(raw: RawNode, axis: "row" | "col", list: string): string {
+  const t = list.split(",");
+  const row = axis === "row";
+  const kids = (raw.children ?? []).filter((k) => k.visible !== false && k.layoutPositioning !== "ABSOLUTE");
+  const size = t.map(() => 0);
+  const used = t.map(() => false);
+  for (const k of kids) {
+    const at = row ? k.gridRowAnchorIndex : k.gridColumnAnchorIndex;
+    if (at === undefined) return list;
+    const span = (row ? k.gridRowSpan : k.gridColumnSpan) ?? 1;
+    for (let i = at; i < at + span && i < t.length; i++) used[i] = true;
+    if (span === 1 && at < t.length) size[at] = Math.max(size[at]!, row ? k.h : k.w);
+  }
+  const empty = t.flatMap((s, i) => (s === "auto" && !used[i] ? [i] : []));
+  if (!empty.length || t.some((s) => s.endsWith("fr"))) return list;
+  const pad = row ? (raw.paddingTop ?? 0) + (raw.paddingBottom ?? 0) : (raw.paddingLeft ?? 0) + (raw.paddingRight ?? 0);
+  const gap = (row ? raw.gridRowGap : raw.gridColumnGap) ?? 0;
+  const taken = t.reduce((a, s, i) => a + (empty.includes(i) ? 0 : s === "auto" ? size[i]! : Number(s)), 0);
+  const each = ((row ? raw.h : raw.w) - pad - gap * (t.length - 1) - taken) / empty.length;
+  if (!(each > 0.5)) return list;
+  for (const i of empty) t[i] = n(each);
+  return t.join(",");
+}
+
 /** Strip Figma's `#123:4` suffix from component property keys. */
 export function propName(key: string): string {
   return key.replace(/#[^#]*$/, "");
@@ -170,6 +253,12 @@ export class Builder {
     this.geometry(ir, raw, parent);
     this.layout(ir, raw);
     this.appearance(ir, raw);
+    if (raw.type === "COMPONENT_SET" && /#9747ff/i.test(ir.style.border ?? "")) {
+      // Figma's purple dashed frame around variants is editor chrome, not design.
+      delete ir.style.border;
+      if (ir.style.radius === "5") delete ir.style.radius;
+      ir.notes.push("Figma's purple dashed outline around the variants is editor chrome: not part of the design");
+    }
     if (raw.type === "TEXT") this.text(ir, raw);
     if (raw.type === "INSTANCE") this.instance(ir, raw);
     if (raw.componentPropertyReferences) {
@@ -184,6 +273,7 @@ export class Builder {
     }
     for (const kid of raw.children ?? []) ir.children.push(this.node(kid, raw));
     if (raw.childCount) ir.more = raw.childCount;
+    if (raw.layoutMode === "GRID" && autoFlow(raw)) for (const c of ir.children) delete c.geo.cell;
     return ir;
   }
 
@@ -212,14 +302,21 @@ export class Builder {
     }
     if (bv.width) g.w = g.w ? `${g.w}(${this.reg.number(raw.w, bv.width.id)})` : this.reg.number(raw.w, bv.width.id);
     if (bv.height) g.h = g.h ? `${g.h}(${this.reg.number(raw.h, bv.height.id)})` : this.reg.number(raw.h, bv.height.id);
+    // A fixed box smaller than its content: Figma keeps the size and lets the content spill over.
+    for (const axis of ["w", "h"] as const) {
+      const content = g[axis] ? 0 : overflow(raw, axis);
+      if (content) g[axis] = `fixed(content ${n(content)})`;
+    }
 
     const parentFlow = !!parent?.layoutMode;
     const absolute = raw.layoutPositioning === "ABSOLUTE";
     if (absolute) g.abs = "";
     if (parent && (!parentFlow || absolute) && raw.bb && parent.bb) {
       // CSS left/top of the unrotated box: the rotated AABB shares its centre.
-      const cx = raw.bb[0] + raw.bb[2] / 2 - parent.bb[0];
-      const cy = raw.bb[1] + raw.bb[3] / 2 - parent.bb[1];
+      // CSS left/top count from inside the parent's border; Figma's from its outer edge.
+      const inset = insideBorder(parent);
+      const cx = raw.bb[0] + raw.bb[2] / 2 - parent.bb[0] - (inset?.[3] ?? 0);
+      const cy = raw.bb[1] + raw.bb[3] / 2 - parent.bb[1] - (inset?.[0] ?? 0);
       g.at = `${n(cx - raw.w / 2)},${n(cy - raw.h / 2)}`;
     }
     if (raw.constraints && parent && (!parentFlow || absolute)) {
@@ -228,7 +325,20 @@ export class Builder {
       const pin = [h, v].filter(Boolean).join(",");
       if (pin) g.pin = pin;
     }
-    if (raw.rotation) g.rotate = `${n(-raw.rotation)}deg`;
+    const quarter = raw.type === "LINE" && raw.rotation ? Math.round(raw.rotation / 90) : 0;
+    if (quarter && Math.abs(raw.rotation! - quarter * 90) < 0.01) {
+      // A line turned by 90° or 180° is just a vertical or horizontal line: say so, unrotated.
+      if (quarter % 2) {
+        ir.w = 0;
+        ir.h = raw.w;
+        if (g.at && raw.bb && parent?.bb) g.at = `${n(raw.bb[0] + raw.bb[2] / 2 - parent.bb[0])},${n(raw.bb[1] + raw.bb[3] / 2 - parent.bb[1] - raw.w / 2)}`;
+      }
+    } else if (raw.rotation && raw.graphic && raw.bb) {
+      // An exported graphic is drawn as rendered, its rotation included: its box is the rotated one.
+      ir.w = raw.bb[2];
+      ir.h = raw.bb[3];
+      if (g.at && parent?.bb) g.at = `${n(raw.bb[0] - parent.bb[0])},${n(raw.bb[1] - parent.bb[1])}`;
+    } else if (raw.rotation) g.rotate = `${n(-raw.rotation)}deg`;
     if (raw.gridColumnAnchorIndex !== undefined && raw.gridRowAnchorIndex !== undefined) {
       g.cell = `${raw.gridColumnAnchorIndex + 1},${raw.gridRowAnchorIndex + 1}`;
       if (raw.gridColumnSpan || raw.gridRowSpan) g.span = `${raw.gridColumnSpan ?? 1}x${raw.gridRowSpan ?? 1}`;
@@ -236,7 +346,8 @@ export class Builder {
   }
 
   private layout(ir: IRNode, raw: RawNode): void {
-    if (!raw.layoutMode) return;
+    // A graphic is exported whole: its own auto layout doesn't matter.
+    if (!raw.layoutMode || raw.graphic) return;
     const L = ir.layout;
     const bv = raw.boundVariables ?? {};
     const num = (key: keyof RawNode & string): string => this.reg.number((raw[key] as number | undefined) ?? 0, bv[key]?.id);
@@ -246,8 +357,8 @@ export class Builder {
           .map((s) => (s.type === "FIXED" ? n(s.value ?? 0) : s.type === "HUG" ? "auto" : `${n(s.value ?? 1)}fr`))
           .join(",");
       L.grid = "";
-      L.cols = tracks(raw.gridColumnSizes, raw.gridColumnCount);
-      L.rows = tracks(raw.gridRowSizes, raw.gridRowCount);
+      L.cols = emptyTracks(raw, "col", tracks(raw.gridColumnSizes, raw.gridColumnCount));
+      L.rows = emptyTracks(raw, "row", tracks(raw.gridRowSizes, raw.gridRowCount));
       if (raw.gridColumnGap) L.gap = num("gridColumnGap");
       if (raw.gridRowGap) L.rowgap = num("gridRowGap");
     } else {
@@ -265,10 +376,22 @@ export class Builder {
       if (raw.counterAxisAlignItems === "MAX") L.align = "end";
       if (raw.counterAxisAlignItems === "BASELINE") L.align = "baseline";
     }
-    const p = sides(num("paddingTop"), num("paddingRight"), num("paddingBottom"), num("paddingLeft"));
+    // Figma's inside border takes no room: padding counts from the outer edge. CSS (border-box)
+    // puts padding inside the border, so print the padding that lands the content where Figma does.
+    const inset = insideBorder(raw);
+    const pad = (key: "paddingTop" | "paddingRight" | "paddingBottom" | "paddingLeft", side: number): string => {
+      const v = raw[key] ?? 0;
+      const w = inset?.[side] ?? 0;
+      if (!w || v < w) return num(key);
+      const ref = num(key);
+      return ref.startsWith("$") ? `calc(${ref} - ${n(w)})` : n(v - w);
+    };
+    const p = sides(pad("paddingTop", 0), pad("paddingRight", 1), pad("paddingBottom", 2), pad("paddingLeft", 3));
     if (p !== "0") L.p = p;
     if (raw.itemReverseZIndex) L["z-reverse"] = "";
-    if (raw.strokesIncludedInLayout) L["border-in-layout"] = "";
+    // Only outside or centre strokes take room, on the frame or on its children.
+    const takesRoom = (r: RawNode) => visible(r.strokes).length > 0 && (r.strokeAlign ?? "INSIDE") !== "INSIDE";
+    if (raw.strokesIncludedInLayout && (takesRoom(raw) || raw.children?.some(takesRoom))) L["border-in-layout"] = "";
   }
 
   /** CSS for one paint, with variable / style references for solids. */
@@ -456,6 +579,26 @@ export class Builder {
     if (raw.textAlignVertical && raw.textAlignVertical !== "TOP" && !hugsHeight) S.valign =raw.textAlignVertical === "CENTER" ? "middle" : raw.textAlignVertical.toLowerCase();
     if (raw.textTruncation) S.ellipsis = raw.maxLines ? `${raw.maxLines}lines` : "";
     if (raw.leadingTrim) S.trim = raw.leadingTrim === "CAP_HEIGHT" ? "cap" : raw.leadingTrim.toLowerCase();
+    if (S.font && hugsHeight && !ir.runs && !raw.leadingTrim && raw.h > 0) {
+      const px = this.renderedLineHeight(raw);
+      if (px) this.reg.measure(S.font, px);
+    }
+  }
+
+  /**
+   * What one line of a text renders to in Figma, from a box that hugs its height: a one-line text
+   * that hugs its width is one line tall, and a percent line height is rounded per line (14px at
+   * 135% is 19 px, not 18.9), so the box is a whole number of those lines.
+   */
+  private renderedLineHeight(raw: RawNode): number | undefined {
+    const seg = raw.segments?.[0];
+    if (!seg || raw.segments!.some((s) => s.paragraphSpacing)) return undefined;
+    if (raw.textAutoResize === "WIDTH_AND_HEIGHT" && !(raw.characters ?? "").includes("\n")) return raw.h;
+    if (seg.lineHeight?.unit !== "PERCENT" || !seg.lineHeight.value) return undefined;
+    const exact = (seg.fontSize * seg.lineHeight.value) / 100;
+    const lines = Math.round(raw.h / exact);
+    const per = raw.h / lines;
+    return lines >= 1 && Math.abs(per - exact) < 1 ? per : undefined;
   }
 
   private instance(ir: IRNode, raw: RawNode): void {

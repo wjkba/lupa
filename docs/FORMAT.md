@@ -18,7 +18,7 @@ The output has up to three sections. **## tokens** resolves the `$name`, `T<n>` 
 
 | Prop | Meaning (CSS equivalent) |
 |---|---|
-| `w:fill` `h:hug` `fill` `hug` | Sizing on that axis. `fill` = stretch (`flex: 1` / `align-self: stretch`), `hug` = fit content. A bare `fill`/`hug` means both axes. No prop means fixed `W×H`. An instance prints `w:fixed`/`h:fixed` (bare `fixed` for both) where its component would hug. |
+| `w:fill` `h:hug` `fill` `hug` | Sizing on that axis. `fill` = stretch (`flex: 1` / `align-self: stretch`), `hug` = fit content. A bare `fill`/`hug` means both axes. No prop means fixed `W×H`. An instance prints `w:fixed`/`h:fixed` (bare `fixed` for both) where its component would hug. `h:fixed(content 40)` marks a fixed box smaller than its auto-layout content: Figma keeps the size and lets the content spill over, so the CSS needs the size even though the content is taller. |
 | `minw` `maxw` `minh` `maxh` | min/max width/height. |
 | `row` `col` `grid` | Auto layout: `display:flex` row/column, or CSS grid. |
 | `gap` `rowgap` `wrap` | `gap` / `row-gap` / `flex-wrap: wrap`. |
@@ -31,7 +31,7 @@ The output has up to three sections. **## tokens** resolves the `$name`, `T<n>` 
 | `rotate:-15deg` | CSS rotation (sign already converted). |
 | `bg:` | `background`, CSS order (topmost first). Solid colours, exact `linear-/radial-/conic-gradient()`, `img(<hash> cover\|contain\|tile\|crop …)`. |
 | `color:` | Text colour; for `svg`, the icon's fill colour(s) (`colors:` when several). |
-| `border:1 #e4e7ec` | Width (per side `0,0,1,0` when they differ), optional `dashed(4,2)`, colour, and `outside`/`center` when not the default inside alignment. |
+| `border:1 #e4e7ec` | Width (per side `0,0,1,0` when they differ), optional `dashed(4,2)`, colour, and `outside`/`center` when not the default inside alignment. Figma draws an inside border over the padding without moving the content, so with one, `p:` and the children's `at:` are already reduced by its width: `box-sizing: border-box` then puts everything where Figma does. |
 | `radius:8` `radius:8,8,0,0` `radius:full` `smooth:60%` | `border-radius` (tl,tr,br,bl). `full` = pill/circle. `smooth` = Figma corner smoothing. |
 | `shadow:` `text-shadow:` | `box-shadow` / `text-shadow`, 1:1. |
 | `blur:` `backdrop:` | `filter: blur()` / `backdrop-filter: blur()`, already halved from Figma's radius. |
@@ -46,7 +46,7 @@ text #15:1 312×28 w:fill; h:hug; font:$Heading/H3; color:$text/primary; text-al
   ~ "Terms" font:T2; color:#4f46e5; href:https://example.com/terms
 ```
 
-- `font:` is always a token. Typography values read `Family weight [italic] size/line-height [ls:…em|px] [uppercase…] [underline…] [para:N]`. `line-height` is px, `%` or `normal`.
+- `font:` is always a token. Typography values read `Family weight [italic] size/line-height [ls:…em|px] [uppercase…] [underline…] [para:N]`. `line-height` is px, `%` or `normal`. `normal≈17` adds the height Figma renders that auto line height at, measured on texts that hug their height; `135%≈19` does the same where Figma rounds a percent line height per line (14px × 135% = 18.9). Write `line-height: 17px` (or `19px`) for an exact match.
 - `~ "run" …` lines list styled runs that differ from the layer's base style. `@<offset>` is added when the same run text appears more than once.
 - `ellipsis` / `ellipsis:2lines` means truncation. `valign`: vertical alignment inside a fixed-height box. `trim:cap` means leading-trim.
 
@@ -56,6 +56,15 @@ text #15:1 312×28 w:fill; h:hug; font:$Heading/H3; color:$text/primary; text-al
 - `$name@0.5` means the token at 50% opacity (paint opacity). `$name@Collection` qualifies a name that exists in several variable collections.
 - `$name=#123456` means the layer is bound to the token, but the value here differs (another mode or a local override).
 - `T<n>` and `E<n>` are repeated typography and effect values, listed once in the table.
+
+## The codebase's own tokens, icons and components
+
+`lupa design` scans the folder it runs in (or `--project DIR`; `--project none` turns this off). It reads CSS, SCSS and Less variables, SVG files, component files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`) and CSS class names. It skips `node_modules`, build output, hidden folders and the assets folder.
+
+- `$Paper = #ffffff → var(--color-bg)`: the project's variable with that value. Aliases (`--color-bg: var(--white)`) come first. A `project colors for values above:` list does the same for raw colours in the tree. Fonts get it in the header.
+- `T4 = Inter 400 14/135%≈19 → .t-paragraph (styles/base.css)`: a class that sets only text properties (font, line-height, letter-spacing, text-transform, colour) with the same family, weight, size, line height, letter spacing and case.
+- `// project has: .badge (components/badge.css)` under a component: the project defines a component or class by that name.
+- With `-d`, an icon the project already has (the same drawing, in any colour, stroke width or size) is not written again. Its `src:` points at the project's file.
 
 ## Components
 

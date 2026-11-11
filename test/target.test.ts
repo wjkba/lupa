@@ -12,6 +12,12 @@ describe("targets", () => {
     expect(parseTarget("https://www.figma.com/design/KEY/Name")).toEqual({ ids: [], fileKey: "KEY" });
   });
 
+  it("parses several links into one target", () => {
+    const a = "https://www.figma.com/design/KEY/Name?node-id=1-2&t=x";
+    expect(parseTarget(`${a} https://www.figma.com/design/KEY/Name?node-id=3-4 5:6`)).toEqual({ ids: ["1:2", "3:4", "5:6"], fileKey: "KEY" });
+    expect(() => parseTarget(`${a} https://www.figma.com/design/OTHER/Name?node-id=3-4`)).toThrow(/different Figma files/);
+  });
+
   it("parses ids and lists", () => {
     expect(parseTarget("12:34, 56-78 #9:1")).toEqual({ ids: ["12:34", "56:78", "9:1"] });
     expect(normalizeId("I12:34;56:78")).toBe("I12:34;56:78");

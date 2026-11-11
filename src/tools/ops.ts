@@ -9,6 +9,7 @@ import { printedDefs, renderSnapshot } from "../model/render";
 import { renderUrl } from "./browser";
 import { formatMatches, formatOutline, formatStatus, formatTokens } from "./format";
 import { compare, exportAssets, fontFamilies, screenshot, writeAssets, type Visual } from "./media";
+import { projectHints, scanProject } from "./project";
 import { parseTarget } from "./target";
 
 export type ComponentsMode = "auto" | "inline" | "names";
@@ -24,6 +25,8 @@ export interface DesignOptions {
   assetsDir?: string;
   /** With assetsDir: monochrome SVG icons use currentColor. */
   currentColor?: boolean;
+  /** The codebase to point the design at (its colour and font variables, icons, components); false: none. */
+  project?: string | false;
   file?: string;
 }
 
@@ -93,17 +96,19 @@ export class Lupa {
 
   async design(o: DesignOptions): Promise<string> {
     const r = await this.resolve(o.target, o.file);
+    const scan = o.project === false ? undefined : scanProject(o.project ?? process.cwd(), o.assetsDir ? [o.assetsDir] : []).catch(() => undefined);
     const snap = await this.bridge.request(
       "snapshot",
       { ids: r.ids, depth: o.depth, includeHidden: o.includeHidden, expandVectors: o.expandVectors, components: o.components !== "names", maxNodes: 30000 },
       r.file,
     );
     if (!snap.roots.length) throw new Error(`Nothing found for ${r.ids.join(", ")}${snap.missing.length ? " (not in this file, or deleted)" : ""}`);
-    const opts = { budget: o.budget ?? 8000, components: o.components ?? "auto" };
+    const index = await scan;
+    const opts = { budget: o.budget ?? 8000, components: o.components ?? "auto", project: index && projectHints(index) };
     if (!o.assetsDir) return renderSnapshot(snap, opts).text;
     // Only the component definitions the output prints need their graphics written.
     const defs = printedDefs(snap, opts.components);
-    const written = await writeAssets(this.bridge, snap, r.file, { dir: o.assetsDir, currentColor: o.currentColor, defs });
+    const written = await writeAssets(this.bridge, snap, r.file, { dir: o.assetsDir, currentColor: o.currentColor, defs, project: index });
     const text = renderSnapshot(snap, { ...opts, files: { ...written, dir: o.assetsDir } }).text;
     return written.failures.length ? `${text}\n\n## asset export failures\n${written.failures.join("\n")}` : text;
   }
@@ -115,7 +120,9 @@ export class Lupa {
 
   async assets(o: { target?: string; dir?: string; as?: "auto" | "svg" | "png"; scale?: number; currentColor?: boolean; file?: string }): Promise<string> {
     const r = await this.resolve(o.target, o.file);
-    return exportAssets(this.bridge, r.ids, r.file, { dir: o.dir ?? "figma-assets", as: o.as ?? "auto", scale: o.scale, currentColor: o.currentColor });
+    const dir = o.dir ?? "figma-assets";
+    const project = o.as === "auto" || !o.as ? await scanProject(process.cwd(), [dir]).catch(() => undefined) : undefined;
+    return exportAssets(this.bridge, r.ids, r.file, { dir, as: o.as ?? "auto", scale: o.scale, currentColor: o.currentColor, project });
   }
 
   async tokens(o: { format?: "list" | "css" | "json"; filter?: string; file?: string }): Promise<string> {

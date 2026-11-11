@@ -29,6 +29,11 @@ export interface PluginInfo {
   activeAt: number;
   /** Figma's window or tab is hidden; Figma does not render exports until it is visible. */
   hidden?: boolean;
+  /**
+   * The plugin's window draws no frames: Figma's window is covered (PNG exports then stall),
+   * or just the plugin window is minimized (they don't). Exports get a short wait.
+   */
+  frozen?: boolean;
 }
 
 export interface SelectionItem {
@@ -190,6 +195,7 @@ export interface HelloPlugin {
   user?: string;
   selection: SelectionItem[];
   hidden?: boolean;
+  frozen?: boolean;
 }
 
 export interface HelloPeer {
@@ -206,10 +212,11 @@ export interface StateUpdate {
   selection: SelectionItem[];
 }
 
-/** Plugin UI → hub: the Figma window/tab was hidden or shown. */
+/** Plugin UI → hub: the Figma window/tab was hidden or shown, or stopped or resumed drawing. */
 export interface VisibilityUpdate {
   t: "visibility";
   hidden: boolean;
+  frozen?: boolean;
 }
 
 export interface RequestMsg {

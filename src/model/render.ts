@@ -11,7 +11,7 @@
  */
 
 import type { RawNode, RawSnapshot } from "../shared/raw";
-import { Builder, isDefaultName, type AssetFiles, type IRNode } from "./build";
+import { Builder, isDefaultName, sameText, type AssetFiles, type IRNode } from "./build";
 import { Components, type ComponentMode, type Override } from "./components";
 import { n } from "./css";
 
@@ -22,7 +22,21 @@ export interface RenderOptions {
   /** Max characters of text content printed per text layer. */
   maxText?: number;
   /** Asset files already written: graphics and images then print `src:<file>`. */
-  files?: AssetFiles & { dir: string; failures: string[] };
+  files?: AssetFiles & { dir: string; failures: string[]; reused?: Set<string> };
+  /** What the codebase already has: its references are printed next to the design's values. */
+  project?: ProjectHints;
+}
+
+/** Lookups into the codebase the design is implemented in (see tools/project). */
+export interface ProjectHints {
+  /** Variables for a colour (#rrggbb or #rrggbbaa): var(--x), $x … */
+  color(hex: string): string[];
+  /** Variables for a font family. */
+  font(family: string): string[];
+  /** Files or CSS classes defining a component of this name. */
+  component(name: string): string[];
+  /** Text style classes for a typography spec ("Inter 500 14/normal≈17 uppercase"). */
+  text(spec: string): string[];
 }
 
 export interface RenderResult {
@@ -198,14 +212,23 @@ export class Renderer {
     const assets = this.assets(roots);
     const files = this.opts.files;
     if (files) {
-      const count = new Set([...files.byNode.values(), ...files.byImage.values()]).size;
-      head.push(`assets: ${count} file${count === 1 ? "" : "s"} in ${files.dir}/, named by src: on each layer${files.failures.length ? ` (${files.failures.length} failed → export_assets)` : ""}`);
+      const own = files.reused?.size ?? 0;
+      const count = new Set([...files.byNode.values(), ...files.byImage.values()]).size - own;
+      const ownNote = own ? ` + ${own} icon${own === 1 ? "" : "s"} the project already has` : "";
+      head.push(`assets: ${count} file${count === 1 ? "" : "s"} in ${files.dir}/${ownNote}, named by src: on each layer${files.failures.length ? ` (${files.failures.length} failed → export_assets)` : ""}`);
     } else if (assets) head.push(`assets: ${assets} → export_assets`);
     if (cut) head.push(`budget: tree cut breadth-first at ~${Math.round(this.budgetChars / CHARS_PER_TOKEN)} tokens — "not shown" markers say how to expand`);
     if (this.snap.stats.truncated) head.push(`warning: snapshot hit the node limit; some layers were not loaded`);
     if (this.snap.missing.length) head.push(`warning: not found: ${this.snap.missing.join(", ")}`);
 
-    const table = this.b.reg.table(used$);
+    const project = this.opts.project;
+    const table = this.b.reg.table(used$, project);
+    if (project) {
+      // Colours the design uses without a token, that the project names.
+      const raw = new Set([...[...defLines, ...body].join("\n").matchAll(/(?<![\w&])#[0-9a-f]{6}(?:[0-9a-f]{2})?(?![\w:])/g)].map((m) => m[0]));
+      const named = [...raw].map((h) => [h, project.color(h)] as const).filter(([, r]) => r.length);
+      if (named.length) table.push("project colors for values above:", ...named.map(([h, r]) => `  ${h} → ${r.slice(0, 3).join(" · ")}`));
+    }
     const out = [...head];
     if (table.length) out.push("", "## tokens", ...table);
     if (defLines.length) out.push("", "## components (instances below list only what differs)", ...defLines);
@@ -299,6 +322,12 @@ export class Renderer {
       const id = node.id;
       const pl = this.comps.propsLine(id) ?? this.rawPropsLine(node.raw);
       if (pl) sub.push(`// ${pl}`);
+      // A variant inside a printed set: the set's line already says where the project has it.
+      const comp = this.snap.components[id];
+      if (this.opts.project && (asDef || node.type !== "COMPONENT" || !comp?.setName)) {
+        const refs = this.opts.project.component(comp?.setName ?? comp?.name ?? node.raw.name);
+        if (refs.length) sub.push(`// project has: ${refs.join(" · ")}`);
+      }
       const desc = this.snap.components[id]?.description ?? node.raw.description;
       if (desc) sub.push(`// ${clip(desc.replace(/\s+/g, " ").trim(), 200)}`);
     }
@@ -425,11 +454,10 @@ export class Renderer {
     const patternVals = pattern.map((p) => this.vals(p).join(" "));
     // Listing grows with the budget, so "use a larger budget" really shows more.
     const cap = Math.max(20, Math.floor(this.budgetChars / 600));
-    const listed = rest.slice(0, cap).map((x, k) => {
-      const v = this.vals(x).join(" ");
-      return v && v !== patternVals[k % pattern.length] ? `#${x.id} ${v}` : `#${x.id}`;
-    });
-    const withContent = listed.some((l) => l.includes(" "));
+    const vals = rest.slice(0, cap).map((x) => this.vals(x).join(" "));
+    const withContent = vals.some((v, k) => v && v !== patternVals[k % pattern.length]);
+    // Once any sibling differs, every one lists its content: a bare id would read as "no text".
+    const listed = vals.map((v, k) => (withContent && v ? `#${rest[k]!.id} ${v}` : `#${rest[k]!.id}`));
     const more = rest.length > cap ? `… +${rest.length - cap} more (larger budget lists them)` : "";
     const defRefs = rest.flatMap((x) => (x.inst?.mainId && this.comps.defs.has(x.inst.mainId) ? [x.inst.mainId] : []));
     const weight = rest.reduce((a, x) => a + 1 + countLayers(x.children), 0);
@@ -496,7 +524,10 @@ export class Renderer {
     };
     roots.forEach(walk);
     return [...fams]
-      .map(([f, w]) => `${f} ${[...w].sort().join("/")}`)
+      .map(([f, w]) => {
+        const refs = this.opts.project?.font(f) ?? [];
+        return `${f} ${[...w].sort().join("/")}${refs.length ? ` → ${refs.slice(0, 2).join(" · ")}` : ""}`;
+      })
       .join(" · ");
   }
 
@@ -518,12 +549,6 @@ export class Renderer {
 }
 
 /* ------------------------------------------------------------------ */
-
-function sameText(name: string, text: string): boolean {
-  const a = name.replace(/\s+/g, " ").trim();
-  const b = text.replace(/\s+/g, " ").trim();
-  return a === b || (a.length >= 8 && b.startsWith(a.replace(/…$/, "")));
-}
 
 function countLayers(nodes: IRNode[]): number {
   let c = 0;

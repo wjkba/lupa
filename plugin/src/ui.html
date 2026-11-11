@@ -72,7 +72,7 @@
   function connect() {
     if (!hello) return;
     try { ws = new WebSocket("ws://localhost:" + PORT); } catch (e) { scheduleReconnect(); return; }
-    ws.onopen = function () { send(Object.assign({}, hello, { hidden: document.hidden })); };
+    ws.onopen = function () { reported = visibility(); send(Object.assign({}, hello, reported)); };
     ws.onmessage = function (ev) {
       var msg;
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
@@ -106,7 +106,22 @@
   };
 
   // Figma stops rendering exports while hidden; tell the hub so it can say so instead of waiting.
-  document.addEventListener("visibilitychange", function () { send({ t: "visibility", hidden: document.hidden }); });
+  // A covered window stops drawing frames without a visibilitychange: no animation frame for
+  // over a second is reported as frozen. One frame is asked for at a time.
+  var lastFrame = Date.now(), reported = { hidden: false, frozen: false }, asked = false;
+  function visibility() { return { hidden: document.hidden, frozen: Date.now() - lastFrame > 1200 }; }
+  function report() {
+    var v = visibility();
+    if (v.hidden === reported.hidden && v.frozen === reported.frozen) return;
+    reported = v;
+    send({ t: "visibility", hidden: v.hidden, frozen: v.frozen });
+  }
+  function onFrame() { asked = false; lastFrame = Date.now(); report(); }
+  setInterval(function () {
+    if (!asked) { asked = true; requestAnimationFrame(onFrame); }
+    report();
+  }, 400);
+  document.addEventListener("visibilitychange", report);
 
   post({ type: "ready" });
 </script>

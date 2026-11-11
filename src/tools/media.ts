@@ -3,10 +3,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { HIDDEN_ERROR, RequestTimeout, type Bridge } from "../bridge/hub";
-import { isDefaultName, slug } from "../model/build";
+import { isDefaultName, isSetOutline, slug } from "../model/build";
 import { n } from "../model/css";
 import type { RawNode, RawSnapshot } from "../shared/raw";
 import { renderSvg } from "./browser";
+import { iconFile, type ProjectIndex } from "./project";
 import { crop, decodePng, diff, encodePng, flatten, isDiffPixel, resize, sideBySide, tiles, VISION_MAX_EDGE, type Raster } from "../image/png";
 
 /** Text for the agent plus PNG images (vision-sized). */
@@ -19,9 +20,12 @@ export interface Visual {
 /* Rendering a node                                                    */
 /* ------------------------------------------------------------------ */
 
-/** How long a PNG export may take before Lupa treats Figma's renderer as stopped. */
-function rasterWaitMs(): number {
-  return Number(process.env.LUPA_RASTER_WAIT_MS) || 10_000;
+/**
+ * How long a PNG export may take before Lupa treats Figma's renderer as stopped. While the
+ * plugin draws no frames, Figma's window is most likely covered, so the wait is short.
+ */
+function rasterWaitMs(frozen?: boolean): number {
+  return Number(process.env.LUPA_RASTER_WAIT_MS) || (frozen ? 2_500 : 10_000);
 }
 
 export const SVG_FALLBACK_NOTE =
@@ -44,11 +48,13 @@ async function renderNode(
   size: { scale: number; width?: number },
   state: RenderState,
 ): Promise<{ png: Buffer; fromSvg: boolean } | { error: string }> {
-  if (bridge.pick(file).hidden) state.stalled = true;
+  const plugin = bridge.pick(file);
+  if (plugin.hidden) state.stalled = true;
   if (!state.stalled) {
     try {
       const fit = size.width ? { width: size.width } : { scale: size.scale };
-      const res = await bridge.request("export", { ids: [node.id], format: "PNG", ...fit, exactBounds: true }, file, { timeoutMs: rasterWaitMs() });
+      const timeoutMs = rasterWaitMs(plugin.frozen);
+      const res = await bridge.request("export", { ids: [node.id], format: "PNG", ...fit, exactBounds: true }, file, { timeoutMs });
       if (!res.blobs.length) return { error: res.errors[0]?.error ?? "export failed" };
       return { png: Buffer.from(res.blobs[0]!.data, "base64"), fromSvg: false };
     } catch (e) {
@@ -125,6 +131,8 @@ interface GraphicAsset {
   base: string;
   /** Main component of an instance. Its other instances aren't listed by id when they draw the same SVG. */
   component?: string;
+  /** Same component, size and colours: what a layer that fails to export can reuse. */
+  sig?: string;
 }
 
 interface ImageAsset {
@@ -137,21 +145,28 @@ interface ImageAsset {
 
 /** Names that make poor file names: Figma's defaults and generic wrappers. */
 const VAGUE_NAME = /^(container|wrapper|content|inner|box|div|layer)(\s+\d+)?$/i;
-const meaningful = (name: string) => !!name.trim() && !isDefaultName(name) && !VAGUE_NAME.test(name.trim());
+/** A variant ("Size=Small, State=Hover") says which variant, not what it is: its set's name does. */
+const VARIANT_NAME = /^[^=,]+=[^=,]*(,\s*[^=,]+=[^=,]*)*$/;
+const meaningful = (name: string) => !!name.trim() && !isDefaultName(name) && !VAGUE_NAME.test(name.trim()) && !VARIANT_NAME.test(name.trim());
+/** A label worth naming a file after: a word, not a count like "3/4". */
+const LABEL = /\p{L}{2}/u;
 
 function collect(snap: RawSnapshot, defs: string[] = []): { graphics: GraphicAsset[]; images: Map<string, ImageAsset> } {
   const graphics: GraphicAsset[] = [];
   const images = new Map<string, ImageAsset>();
   const seen = new Set<string>();
-  const walk = (node: RawNode, context: string | undefined) => {
+  const walk = (node: RawNode, context: string | undefined, label?: string) => {
     if (node.stub || seen.has(node.id)) return;
     seen.add(node.id);
-    const base = (name: string) => (meaningful(name) ? name : (context ?? name));
+    // An unnamed layer goes by its parent's name; in an unnamed parent, by the short text beside
+    // it (a logo next to the brand name, a search icon in its field); else by the nearest named ancestor.
+    const base = (name: string) => (meaningful(name) ? name : (label ?? context ?? name));
     if (node.graphic) {
       // Every layer is exported: instances of one component can differ (a swapped nested icon, overridden fills).
       const c = node.mainComponentId ? snap.components[node.mainComponentId] : undefined;
       const name = c ? (c.setName ? `${c.setName} ${Object.values(c.variant ?? {}).join(" ")}` : c.name) : node.name;
-      graphics.push({ nodeId: node.id, name, base: base(name), component: c?.id });
+      const sig = c && JSON.stringify([c.id, Math.round(node.w), Math.round(node.h), node.rotation ?? 0, node.graphic.colors, node.graphic.nodes]);
+      graphics.push({ nodeId: node.id, name, base: base(name), component: c?.id, sig });
       return;
     }
     for (const p of node.fills ?? []) {
@@ -160,13 +175,16 @@ function collect(snap: RawSnapshot, defs: string[] = []): { graphics: GraphicAss
       if (img) img.uses++;
       else images.set(p.imageHash, { hash: p.imageHash, name: node.name, base: base(node.name), nodeId: node.id, uses: 1 });
     }
-    const inner = meaningful(node.name) ? node.name : context;
-    node.children?.forEach((c) => walk(c, inner));
+    const named = meaningful(node.name);
+    const kids = (node.children ?? []).filter((c) => !c.stub);
+    const text = kids.find((c) => c.type === "TEXT" && c.characters?.trim())?.characters?.trim();
+    const near = !named && kids.length <= 3 ? (text && text.length <= 24 && LABEL.test(text) ? text : label) : undefined;
+    kids.forEach((c) => walk(c, named ? node.name : context, near));
   };
   snap.roots.forEach((r) => walk(r, undefined));
   for (const id of defs) {
-    const tree = snap.components[id]?.tree;
-    if (tree) walk(tree, undefined);
+    const c = snap.components[id];
+    if (c?.tree) walk(c.tree, c.setName);
   }
   return { graphics, images };
 }
@@ -179,12 +197,22 @@ function imageExt(buf: Buffer): string {
   return "bin";
 }
 
-/** Replace the only colour of a monochrome SVG with currentColor. */
+/** Replace the only colour of a monochrome SVG with currentColor. A mask's white is not a colour of the icon. */
 export function toCurrentColor(svg: string): string {
-  const colors = new Set([...svg.matchAll(/(?:fill|stroke)="(#[0-9a-fA-F]{3,8}|black|white)"/g)].map((m) => m[1]!.toLowerCase()));
+  const PAINT = /(?:fill|stroke)="(#[0-9a-fA-F]{3,8}|black|white)"/g;
+  const MASK = /<(mask|clipPath)\b[\s\S]*?<\/\1>/gi;
+  const colors = new Set([...svg.replace(MASK, "").matchAll(PAINT)].map((m) => m[1]!.toLowerCase()));
   if (colors.size !== 1) return svg;
   const [c] = [...colors];
-  return svg.replace(new RegExp(`(fill|stroke)="${c!.replace("#", "\\#")}"`, "gi"), '$1="currentColor"');
+  const swap = (part: string) => part.replace(new RegExp(`(fill|stroke)="${c!.replace("#", "\\#")}"`, "gi"), '$1="currentColor"');
+  // Masks keep their own paint: only the drawing outside them changes.
+  let out = "";
+  let last = 0;
+  for (const m of svg.matchAll(MASK)) {
+    out += swap(svg.slice(last, m.index)) + m[0];
+    last = m.index! + m[0].length;
+  }
+  return out + swap(svg.slice(last));
 }
 
 /** File names from layer names, unique within one export. */
@@ -203,7 +231,7 @@ export async function exportAssets(
   bridge: Bridge,
   ids: string[],
   file: string | undefined,
-  opts: { dir: string; as: "auto" | "svg" | "png"; scale?: number; currentColor?: boolean },
+  opts: { dir: string; as: "auto" | "svg" | "png"; scale?: number; currentColor?: boolean; project?: ProjectIndex },
 ): Promise<string> {
   if (opts.as !== "auto") {
     // Export the given layers themselves.
@@ -224,7 +252,7 @@ export async function exportAssets(
   }
 
   const snap = await bridge.request("snapshot", { ids, components: false, maxNodes: 50000 }, file);
-  const res = await writeAssets(bridge, snap, file, { dir: opts.dir, currentColor: opts.currentColor });
+  const res = await writeAssets(bridge, snap, file, { dir: opts.dir, currentColor: opts.currentColor, project: opts.project });
   if (!res.byNode.size && !res.byImage.size && !res.failures.length) {
     return `No vector graphics or image fills under ${ids.join(", ")}. To export the layers themselves, call again with as:"png" or as:"svg".`;
   }
@@ -240,6 +268,8 @@ export interface WrittenAssets {
   byNode: Map<string, string>;
   /** …and for each image hash. */
   byImage: Map<string, string>;
+  /** Project icon files used instead of writing a copy (paths relative to the current directory). */
+  reused: Set<string>;
 }
 
 /**
@@ -250,7 +280,7 @@ export async function writeAssets(
   bridge: Bridge,
   snap: RawSnapshot,
   file: string | undefined,
-  opts: { dir: string; currentColor?: boolean; defs?: string[] },
+  opts: { dir: string; currentColor?: boolean; defs?: string[]; project?: ProjectIndex },
 ): Promise<WrittenAssets> {
   const dir = path.resolve(opts.dir);
   await mkdir(dir, { recursive: true });
@@ -265,10 +295,15 @@ export async function writeAssets(
   };
   const byNode = new Map<string, string>();
   const byImage = new Map<string, string>();
+  const reused = new Set<string>();
+  // A project icon's path is already relative to the current directory.
+  const where = (name: string) => (reused.has(name) ? name : rel(name));
   const { graphics, images } = collect(snap, opts.defs);
 
   // Different layers often draw the same icon: write each distinct SVG once.
   const written = new Map<string, { name: string; line: number; uses: number; component?: string; also: string[] }>();
+  const bySig = new Map<string, string>();
+  const failed: { g: GraphicAsset; error: string }[] = [];
   for (let i = 0; i < graphics.length; i += 40) {
     const batch = graphics.slice(i, i + 40);
     const res = await bridge.request("export", { ids: batch.map((g) => g.nodeId), format: "SVG" }, file);
@@ -276,23 +311,42 @@ export async function writeAssets(
     for (const g of batch) {
       const b = byId.get(g.nodeId);
       if (!b) {
-        fail(`failed svg "${g.name}" #${g.nodeId}: ${res.errors.find((e) => e.id === g.nodeId)?.error ?? "no data"}`);
+        failed.push({ g, error: res.errors.find((e) => e.id === g.nodeId)?.error ?? "no data" });
         continue;
       }
       const svg = opts.currentColor ? toCurrentColor(b.data) : b.data;
-      const same = written.get(svg);
+      // Coordinates that differ past the second decimal draw the same icon.
+      const key = svg.replace(/(\d+\.\d{2})\d+/g, "$1");
+      const same = written.get(key);
       if (same) {
         same.uses++;
         if (!g.component || g.component !== same.component) same.also.push(`#${g.nodeId}`);
-        byNode.set(g.nodeId, rel(same.name));
+        byNode.set(g.nodeId, where(same.name));
+        if (g.sig) bySig.set(g.sig, same.name);
         continue;
       }
-      const name = fileName(g.base, "svg");
-      await writeFile(path.join(dir, name), svg);
-      written.set(svg, { name, line: lines.length, uses: 1, component: g.component, also: [] });
-      byNode.set(g.nodeId, rel(name));
-      lines.push(`${name} ← svg "${g.name}" #${g.nodeId} ${n(b.w)}×${n(b.h)}`);
+      // The project already has this icon (any colour or stroke width): point at its file instead of a copy.
+      const own = opts.project && iconFile(opts.project, svg);
+      const name = own || fileName(g.base, "svg");
+      if (own) reused.add(own);
+      else await writeFile(path.join(dir, name), svg);
+      written.set(key, { name, line: lines.length, uses: 1, component: g.component, also: [] });
+      byNode.set(g.nodeId, own || rel(name));
+      if (g.sig) bySig.set(g.sig, name);
+      lines.push(`${name} ← svg "${g.name}" #${g.nodeId} ${n(b.w)}×${n(b.h)}${own ? " (the project's own icon: not written)" : ""}`);
     }
+  }
+  // Figma won't export a layer that an ancestor clips away entirely (a row below a frame's
+  // fold). An instance drawing the same component at the same size and colours stands in.
+  for (const { g, error } of failed) {
+    const name = g.sig ? bySig.get(g.sig) : undefined;
+    const same = name ? [...written.values()].find((w) => w.name === name) : undefined;
+    if (!name || !same) {
+      fail(`failed svg "${g.name}" #${g.nodeId}: ${error}`);
+      continue;
+    }
+    same.uses++;
+    byNode.set(g.nodeId, where(name));
   }
   for (const w of written.values()) {
     if (w.uses < 2) continue;
@@ -318,8 +372,9 @@ export async function writeAssets(
       lines.push(`${name} ← src:${img.hash.slice(0, 10)} "${img.name}" #${img.nodeId}${got.w ? ` ${got.w}×${got.h}px original` : ""}${img.uses > 1 ? ` (used ${img.uses}×)` : ""}`);
     }
   }
-  const report = [`Wrote ${written.size + byImage.size} file(s) to ${dir}`, ...lines].join("\n");
-  return { report, failures, byNode, byImage };
+  const own = reused.size ? `; ${reused.size} icon(s) the project already has` : "";
+  const report = [`Wrote ${written.size - reused.size + byImage.size} file(s) to ${dir}${own}`, ...lines].join("\n");
+  return { report, failures, byNode, byImage, reused };
 }
 
 /* ------------------------------------------------------------------ */
@@ -386,6 +441,25 @@ export function fontFamilies(root: RawNode): string[] {
   return [...out];
 }
 
+/** Stroke weight of a component set's default purple outline, or 0. */
+function setOutline(root: RawNode): number {
+  return root.type === "COMPONENT_SET" && root.strokes?.some(isSetOutline) ? (root.strokeWeight ?? 1) : 0;
+}
+
+/** Copy `band` px along each edge of `b` into `a`, so those pixels never differ. */
+function ignoreEdges(a: Raster, b: Raster, band: number): void {
+  for (let y = 0; y < a.height; y++) {
+    for (let x = 0; x < a.width; x++) {
+      if (x >= band && y >= band && x < a.width - band && y < a.height - band) {
+        x = a.width - band - 1;
+        continue;
+      }
+      const i = (y * a.width + x) * 4;
+      b.data.copy(a.data, i, i, i + 4);
+    }
+  }
+}
+
 /** Diff an implementation PNG against `root` (a snapshot without components) exported at the same width. */
 export async function compare(
   bridge: Bridge,
@@ -413,6 +487,9 @@ export async function compare(
   }
   const a = crop(design, 0, 0, design.width, h);
   const b = crop(actual, 0, 0, actual.width, h);
+  // A component set's purple dashed outline is Figma's editor chrome (left out of `lupa design`): not compared.
+  const outline = setOutline(root);
+  if (outline) ignoreEdges(a, b, Math.ceil((outline + 1) * scale));
   const d = diff(a, b, opts.threshold ?? 0.1);
   lines.push(`mismatch: ${n(d.ratio * 100)}% of pixels (${d.mismatched}/${d.total})${d.ratio < 0.005 ? " — visually matching" : ""}`);
 

@@ -6,11 +6,13 @@
  */
 
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export interface RenderOptions {
   url: string;
@@ -146,35 +148,76 @@ function missingFamilies(families: string[]): string[] {
   return families.filter((f) => ["monospace", "serif", "sans-serif"].every((g) => width(`72px "${f}", ${g}`) === width(`72px ${g}`)));
 }
 
+const TYPES: Record<string, string> = {
+  ".html": "text/html", ".htm": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript",
+  ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".ico": "image/x-icon", ".woff": "font/woff",
+  ".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf", ".mp4": "video/mp4", ".webm": "video/webm",
+};
+
+/**
+ * Serve a file:// page over local HTTP, as the app would be: Chromium refuses CSS masks,
+ * ES modules and fetch() from file://. The root is the current folder when the page is in it
+ * (so "/styles/a.css" resolves like on a dev server), else the page's own folder.
+ */
+async function serveFile(url: string): Promise<{ url: string; close(): void }> {
+  const u = new URL(url);
+  const file = fileURLToPath(u);
+  if (!existsSync(file)) throw new Error(`${file} does not exist`);
+  const inCwd = !path.relative(process.cwd(), file).startsWith("..");
+  const root = inCwd ? process.cwd() : path.dirname(file);
+  const server = createServer(async (req, res) => {
+    let p = path.join(root, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname));
+    try {
+      if (path.relative(root, p).startsWith("..")) throw new Error("outside");
+      if ((await stat(p)).isDirectory()) p = path.join(p, "index.html");
+      const body = await readFile(p);
+      res.writeHead(200, { "content-type": TYPES[path.extname(p).toLowerCase()] ?? "application/octet-stream" });
+      res.end(body);
+    } catch {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  const port = (server.address() as AddressInfo).port;
+  const rel = path.relative(root, file).split(path.sep).map(encodeURIComponent).join("/");
+  return { url: `http://127.0.0.1:${port}/${rel}${u.search}${u.hash}`, close: () => server.close() };
+}
+
 /** Render a page (or one element of it) to PNG. */
 export async function renderUrl(opts: RenderOptions): Promise<Rendered> {
-  const browser = await launch(await loadChromium());
+  const served = opts.url.startsWith("file:") ? await serveFile(opts.url) : undefined;
   try {
-    const page = await browser.newPage({
-      viewport: { width: Math.round(opts.width), height: opts.height ?? 900 },
-      deviceScaleFactor: opts.scale ?? 2,
-    });
-    await page.goto(opts.url, { waitUntil: "load", timeout: 30_000 });
-    // Dev servers keep sockets open; settle briefly but don't hang on them.
-    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-    const waitFor = opts.waitFor ?? opts.selector;
-    if (waitFor) {
-      await page
-        .locator(waitFor)
-        .first()
-        .waitFor({ state: "visible", timeout: 15_000 })
-        .catch(() => {
-          throw new Error(`"${waitFor}" did not appear on ${opts.url} within 15s`);
-        });
+    const browser = await launch(await loadChromium());
+    try {
+      const page = await browser.newPage({
+        viewport: { width: Math.round(opts.width), height: opts.height ?? 900 },
+        deviceScaleFactor: opts.scale ?? 2,
+      });
+      await page.goto(served?.url ?? opts.url, { waitUntil: "load", timeout: 30_000 });
+      // Dev servers keep sockets open; settle briefly but don't hang on them.
+      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+      const waitFor = opts.waitFor ?? opts.selector;
+      if (waitFor) {
+        await page
+          .locator(waitFor)
+          .first()
+          .waitFor({ state: "visible", timeout: 15_000 })
+          .catch(() => {
+            throw new Error(`"${waitFor}" did not appear on ${opts.url} within 15s`);
+          });
+      }
+      await page.evaluate(() => (globalThis as unknown as { document: { fonts: { ready: Promise<unknown> } } }).document.fonts.ready);
+      const missingFonts = (await page.evaluate(missingFamilies, opts.fonts ?? [])) as string[];
+      const png = opts.selector
+        ? await page.locator(opts.selector).first().screenshot({ animations: "disabled" })
+        : await page.screenshot({ fullPage: true, animations: "disabled" });
+      return { png, missingFonts };
+    } finally {
+      await browser.close();
     }
-    await page.evaluate(() => (globalThis as unknown as { document: { fonts: { ready: Promise<unknown> } } }).document.fonts.ready);
-    const missingFonts = (await page.evaluate(missingFamilies, opts.fonts ?? [])) as string[];
-    const png = opts.selector
-      ? await page.locator(opts.selector).first().screenshot({ animations: "disabled" })
-      : await page.screenshot({ fullPage: true, animations: "disabled" });
-    return { png, missingFonts };
   } finally {
-    await browser.close();
+    served?.close();
   }
 }
 

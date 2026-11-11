@@ -366,6 +366,7 @@ export class Bridge {
             selection: h.selection ?? [],
             activeAt: Date.now(),
             hidden: h.hidden === true,
+            frozen: h.frozen === true,
           };
           this.plugins.set(conn, { ws, info, alive: true });
           ws.on("pong", () => {
@@ -399,9 +400,11 @@ export class Bridge {
           }
         } else if (msg.t === "visibility") {
           const c = this.plugins.get(conn!);
-          if (c && c.info.hidden !== msg.hidden) {
+          const frozen = msg.frozen === true;
+          if (c && (c.info.hidden !== msg.hidden || c.info.frozen !== frozen)) {
             c.info.hidden = msg.hidden;
-            this.log(`"${c.info.fileName}" is ${msg.hidden ? "hidden" : "visible"}`);
+            c.info.frozen = frozen;
+            this.log(`"${c.info.fileName}" is ${msg.hidden ? "hidden" : frozen ? "not drawing (covered)" : "visible"}`);
             this.broadcast();
           }
         }
